@@ -1,32 +1,19 @@
 {
-  "id": "com.Macieles.Argentinapapa",
-  "name": "Argentinapapa",
-  "version": "0.2.0",
-  "scrapers": [
+  "providers": [
     {
-      "id": "wikimedia",
-      "name": "Wikimedia Commons",
-      "description": "Proveedor que obtiene resultados de películas mediante el archivo de configuración domains.json y las fuentes autorizadas configuradas.",
-      "version": "1.0.0",
-      "author": "Macieles",
-      "supportedTypes": [
-        "movie"
-      ],
-      "filename": "providers/wikimedia.js",
-      "enabled": true,
-      "formats": [
-        "mp4",
-        "m4v",
-        "webm",
-        "ogv",
-        "ogg",
-        "m3u8"
-      ],
-      "logo": "",
-      "contentLanguage": [
-        "es",
-        "en"
-      ]
+      "name": "Cuevana3k",
+      "domain": "https://cuevana3k.pro/",
+      "enabled": true
+    },
+    {
+      "name": "Cinecalidad",
+      "domain": "https://www.cinecalidad.my/",
+      "enabled": true
+    },
+    {
+      "name": "Sololatino",
+      "domain": "https://sololatino.net/",
+      "enabled": true
     }
   ]
 }
