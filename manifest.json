@@ -10,7 +10,7 @@
       "version": "1.0.0",
       "author": "Desconocido",
       "supportedTypes": ["movie"],
-      "filename": "providers/cinecalidad.js",
+      "filename": "providers/sololatino.js",
       "enabled": true,
       "formats": ["mp4", "m3u8"],
       "logo": "",
