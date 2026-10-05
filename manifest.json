@@ -1,19 +1,29 @@
+```json
 {
-  "providers": [
+  "id": "com.Macieles.Argentinapapa",
+  "name": "Argentinapapa",
+  "version": "0.1.0",
+  "scrapers": [
     {
+      "id": "cuevana3k",
       "name": "Cuevana3k",
-      "domain": "https://cuevana3k.pro/",
-      "enabled": true
-    },
-    {
-      "name": "Cinecalidad",
-      "domain": "https://www.cinecalidad.my/",
-      "enabled": true
-    },
-    {
-      "name": "Sololatino",
-      "domain": "https://sololatino.net/",
-      "enabled": true
+      "description": "Proveedor de películas Cuevana3k.",
+      "version": "1.0.0",
+      "author": "Macieles",
+      "supportedTypes": [
+        "movie"
+      ],
+      "filename": "providers/cuevana3k.js",
+      "enabled": true,
+      "formats": [
+        "mp4",
+        "m3u8"
+      ],
+      "logo": "",
+      "contentLanguage": [
+        "es"
+      ]
     }
   ]
 }
+```
