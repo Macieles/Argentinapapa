@@ -4,9 +4,9 @@
   "version": "0.1",
   "scrapers": [
     {
-      "id": "cinecalidad",
-      "name": "CineCalidad",
-      "description": "Extrae streams desde cinecalidad.my (solo películas). Soporta servidores como VOE, StreamWish, VidHide, Filemoon, etc.",
+      "id": "sololatino",
+      "name": "sololatino",
+      "description": "Extrae streams desde sololatino (solo películas). Soporta servidores como VOE, StreamWish, VidHide, Filemoon, etc.",
       "version": "1.0.0",
       "author": "Desconocido",
       "supportedTypes": ["movie"],
