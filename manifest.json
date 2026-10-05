@@ -9,12 +9,43 @@
       "description": "Extrae streams desde sololatino (solo películas). Soporta servidores como VOE, StreamWish, VidHide, Filemoon, etc.",
       "version": "1.0.0",
       "author": "Desconocido",
-      "supportedTypes": ["movie"],
+      "supportedTypes": [
+        "movie"
+      ],
       "filename": "providers/sololatino.js",
       "enabled": true,
-      "formats": ["mp4", "m3u8"],
+      "formats": [
+        "mp4",
+        "m3u8"
+      ],
       "logo": "",
-      "contentLanguage": ["es"]
+      "contentLanguage": [
+        "es"
+      ]
+    },
+    {
+      "id": "wikimedia-public-domain",
+      "name": "Wikimedia Commons (dominio público)",
+      "description": "Busca películas en Wikimedia Commons y devuelve sólo videos marcados como Public Domain o CC0. Cobertura limitada; requiere coincidencia verificada.",
+      "version": "1.0.0",
+      "author": "Macieles",
+      "supportedTypes": [
+        "movie"
+      ],
+      "filename": "providers/wikimedia-public-domain.js",
+      "enabled": true,
+      "formats": [
+        "mp4",
+        "m4v",
+        "webm",
+        "ogv",
+        "ogg"
+      ],
+      "logo": "",
+      "contentLanguage": [
+        "en",
+        "es"
+      ]
     }
   ]
 }
