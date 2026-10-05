@@ -1,0 +1,72 @@
+{
+  "id": "com.Macieles.Argentinapapa",
+  "name": "Argentinapapa",
+  "version": "0.1",
+  "scrapers": [
+    {
+      "id": "lamovie",
+      "name": "LA.Movie",
+      "description": "Streams en Inglés/Latino/Español de LaMovie. Vimeos, GoodStream, StreamWish, VOE y Filemoon.",
+      "version": "1.0.0",
+      "author": "EzequielS03",
+      "supportedTypes": ["movie", "tv"],
+      "filename": "providers/lamovie.js",
+      "enabled": true,
+      "formats": ["mp4", "m3u8"],
+      "logo": "https://i.postimg.cc/SsgH2gcK/lamovie.png",
+      "contentLanguage": ["en", "es"]
+    },
+    {
+      "id": "lamovie-old",
+      "name": "LA.Movie (Backup)",
+      "description": "Versión de respaldo de LaMovie (ofuscada original) para fallback en caso de que el scraper principal falle.",
+      "version": "1.0.0",
+      "author": "EzequielS03",
+      "supportedTypes": ["movie", "tv"],
+      "filename": "providers/lamovie-old.js",
+      "enabled": true,
+      "formats": ["mp4", "m3u8"],
+      "logo": "https://i.postimg.cc/SsgH2gcK/lamovie.png",
+      "contentLanguage": ["en", "es"]
+    },
+    {
+      "id": "cinehdplus",
+      "name": "CineHDPlus",
+      "description": "Streams desde cinehdplus.zone con resoluciones HD. Soporta películas y series.",
+      "version": "1.0.0",
+      "author": "Desconocido",
+      "supportedTypes": ["movie", "tv"],
+      "filename": "providers/cinehdplus.js",
+      "enabled": true,
+      "formats": ["mp4", "m3u8"],
+      "logo": "",
+      "contentLanguage": ["es"]
+    },
+    {
+      "id": "sololatino",
+      "name": "SoloLatino",
+      "description": "Resuelve enlaces directos desde sololatino.net usando Mediafire. Enfocado en contenido en Latino.",
+      "version": "1.0.0",
+      "author": "Desconocido",
+      "supportedTypes": ["movie", "tv"],
+      "filename": "providers/sololatino.js",
+      "enabled": true,
+      "formats": ["mp4", "m3u8"],
+      "logo": "",
+      "contentLanguage": ["es"]
+    },
+    {
+      "id": "cinecalidad",
+      "name": "CineCalidad",
+      "description": "Extrae streams desde cinecalidad.am (solo películas). Soporta servidores como VOE, StreamWish, VidHide, Filemoon, etc.",
+      "version": "1.0.0",
+      "author": "Desconocido",
+      "supportedTypes": ["movie"],
+      "filename": "providers/cinecalidad.js",
+      "enabled": true,
+      "formats": ["mp4", "m3u8"],
+      "logo": "",
+      "contentLanguage": ["es"]
+    }
+  ]
+}
