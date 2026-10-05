@@ -1,6 +1,19 @@
 {
-  "cinecalidad": "www.cinecalidad.my",
-  "lamovie": "https://lamovie.la",
-  "sololatino": "https://sololatino.net",
-  "cuevana3k": "https://cuevana3k.pro",
+  "providers": [
+    {
+      "name": "Cuevana3k",
+      "domain": "https://cuevana3k.pro/",
+      "enabled": true
+    },
+    {
+      "name": "Cinecalidad",
+      "domain": "https://www.cinecalidad.my/",
+      "enabled": true
+    }
+    {
+      "name": "Sololatino",
+      "domain": "https://sololatino.net/",
+      "enabled": true
+    }
+  ]
 }
