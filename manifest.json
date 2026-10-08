@@ -1,15 +1,19 @@
 {
+  "name": "All-in-One-Nuvio",
+  "version": "1.0.0",
+  "scrapers": [
+    {
       "id": "cinecalidad",
       "name": "cinecalidad",
-      "description": "cinecalidad- Movies | Series in 4k, 1080p, 720p & 480p",
+      "description": "movies and TV streaming with PoW session verification and direct HLS streams",
       "version": "1.0.0",
-      "author": "macieles",
+      "author": "Nuvio Team",
       "supportedTypes": ["movie", "tv"],
       "filename": "providers/cinecalidad.js",
       "enabled": true,
       "hasSettings": false,
-      "formats": ["mkv", "mp4", "m3u8"],
-      "logo": "https://www.cinecalidad.my/wp-content/themes/gridthemeresponsive/images/logo.png",
-      "contentLanguage": ["en", "hi"]
+      "formats": ["m3u8"],
+      "contentLanguage": ["es"]
     }
-     
+  ]
+}
