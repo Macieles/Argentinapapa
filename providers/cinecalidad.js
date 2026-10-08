@@ -229,7 +229,7 @@ function fetchPageUrl(name, year, isSeries) {
 var cheerio2 = require("cheerio-without-node-native");
 function resolveRedirectUrl(redirectUrl) {
   return __async(this, null, function* () {
-    // CORREGIDO: la condición estaba rota ("| {"). Si ya es un link directo de turbobit, no hay nada que resolver.
+    // Original (4KHDHub): if (includes("hubcloud.") || includes("hubdrive.")) return redirectUrl;
     if (redirectUrl.includes("turbobit.")) {
       return redirectUrl;
     }
@@ -269,25 +269,24 @@ function extractSourceResults($, el) {
       height,
       title
     };
-    // CORREGIDO: antes se declaraba "turbobitlinksLink" y se usaba "turbobitlinks" (no existía),
-    // y después se volvía a declarar "const turbobitlinks" (error de redeclaración).
-    const turbobitlinksHref = $(el).find("a").filter((_, a) => {
+    // Equivale a "hblinksLink" del original (intermediario con varios links).
+    const turbobitlinksLink = $(el).find("a").filter((_, a) => {
       const href = $(a).attr("href") || "";
-      return href.includes("turbobitlinks");
+      return href.includes("turbobitlinks") || href.includes("turbobit.net");
     }).attr("href");
-    if (turbobitlinksHref) {
-      return { url: new URL(turbobitlinksHref, BASE_URL).toString(), meta, extractor: "turbobitlinks" };
+    if (turbobitlinksLink) {
+      return { url: new URL(turbobitlinksLink, BASE_URL).toString(), meta, extractor: "turbobitlinks" };
     }
-    const turbobitHref = $(el).find("a").filter((_, a) => {
+    // Equivale a "hubCloudLink" del original (host final).
+    const turbobitLink = $(el).find("a").filter((_, a) => {
       const text = $(a).text();
       const href = $(a).attr("href") || "";
       return text.includes("turbobit") || href.includes("turbobit.") || href.includes("turbobit/");
     }).attr("href");
-    if (turbobitHref) {
-      const resolved = yield resolveRedirectUrl(turbobitHref);
+    if (turbobitLink) {
+      const resolved = yield resolveRedirectUrl(turbobitLink);
       return { url: resolved, meta };
     }
-    // CORREGIDO: se eliminaron las llaves "}" sueltas que había acá.
     return null;
   });
 }
@@ -313,20 +312,22 @@ function extractTurbobit(turbobitUrl, baseMeta) {
       bytes: parseBytes(sizeText) || baseMeta.bytes,
       title: titleText || baseMeta.title
     });
+    // Se restauran las 4 ramas del original (en cinecalidad habían quedado 2 iguales).
     $("a").each((_, el) => {
       const text = $(el).text().trim();
       const href = $(el).attr("href");
       if (!href)
         return;
-      // CORREGIDO: los dos if tenían la misma condición, el segundo nunca se ejecutaba.
-      // Ahora se distingue la variante "10Gbps" del resto.
-      if (text.includes("10Gbps")) {
+      if (text.includes("10Gbps") || text.includes("PixelServer") || href.includes("turbobit.net")) {
         results.push({ source: "turbobit 10Gbps", url: href, meta: currentMeta });
-      } else if (text.includes("turbobit") || href.includes("turbobit.net")) {
-        results.push({ source: "turbobit", url: href, meta: currentMeta });
+      } else if (text.includes("Download File") || href.includes("r2.dev")) {
+        results.push({ source: "Direct R2", url: href, meta: currentMeta });
+      } else if (text.includes("ZipDisk") || href.includes("workers.dev")) {
+        results.push({ source: "ZipDisk Server", url: href, meta: currentMeta });
+      } else if (text.includes("FSL")) {
+        results.push({ source: "FSL", url: href, meta: currentMeta });
       }
     });
-    // CORREGIDO: faltaba cerrar la función y devolver los resultados.
     return results;
   });
 }
@@ -347,13 +348,12 @@ function extractTurbobitLinks(turbobitlinksUrl, baseMeta, depth = 0) {
           const resolvedLink = yield resolveRedirectUrl(absoluteLink);
           const link = resolvedLink || absoluteLink;
           const hostname = new URL(link).hostname.toLowerCase();
-          // CORREGIDO: había ramas duplicadas/inalcanzables con nombres de función inexistentes.
-          if (hostname.includes("turbobitlinks")) {
+          if (hostname.includes("turbobitlinks") || hostname.includes("turbobit.net")) {
             const nestedResults = yield extractTurbobitLinks(link, baseMeta, depth + 1);
             results.push(...nestedResults);
           } else if (hostname.includes("turbobit")) {
-            const turbobitResults = yield extractTurbobit(link, baseMeta);
-            results.push(...turbobitResults);
+            const cloudResults = yield extractTurbobit(link, baseMeta);
+            results.push(...cloudResults);
           } else if (/\.(m3u8|mpd|mp4|mkv)(?:$|\?)/i.test(link)) {
             results.push({ source: "turbobitlinks Direct", url: link, meta: baseMeta });
           }
@@ -412,7 +412,6 @@ function getStreams(tmdbId, type, season, episode) {
           if (sourceResult.extractor === "turbobitlinks") {
             extractedLinks = yield extractTurbobitLinks(sourceResult.url, sourceResult.meta);
           } else {
-            // CORREGIDO: "extracmegalink" no existía.
             extractedLinks = yield extractTurbobit(sourceResult.url, sourceResult.meta);
           }
           return extractedLinks.map((link) => ({
