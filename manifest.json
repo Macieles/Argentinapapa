@@ -7,9 +7,22 @@
       "name": "cinecalidad",
       "description": "movies and TV streaming with PoW session verification and direct HLS streams",
       "version": "1.0.0",
-      "author": "Nuvio Team",
+      "author": "macieles",
       "supportedTypes": ["movie", "tv"],
       "filename": "providers/cinecalidad.js",
+      "enabled": true,
+      "hasSettings": false,
+      "formats": ["m3u8"],
+      "contentLanguage": ["es"]
+    }
+    {
+      "id": "latinomegahd",
+      "name": "latinomegahd",
+      "description": "movies streams",
+      "version": "1.0.0",
+      "author": "macieles,
+      "supportedTypes": ["movie", "tv"],
+      "filename": "providers/latinomegahd.js",
       "enabled": true,
       "hasSettings": false,
       "formats": ["m3u8"],
