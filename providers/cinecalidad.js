@@ -52,7 +52,7 @@ function fetchLatestDomain() {
       const response = yield fetch(DOMAINS_URL);
       const data = yield response.json();
       if (data && data["cinecalidad"]) {
-        domainCache.url = data["4khdhub"];
+        domainCache.url = data["cinecalidad"];
         domainCache.ts = now;
       }
     } catch (e) {
@@ -73,7 +73,7 @@ function fetchText(_0) {
         });
         return yield response.text();
       } catch (err) {
-        console.log(`[4KHDHub] Request failed for ${url}: ${err.message}${i < retries ? `, retrying (${i + 1}/${retries})...` : ""}`);
+        console.log(`[cinecalidad] Request failed for ${url}: ${err.message}${i < retries ? `, retrying (${i + 1}/${retries})...` : ""}`);
       }
       if (i < retries) {
         yield new Promise((r) => setTimeout(r, delay * Math.pow(2, i)));
@@ -186,7 +186,7 @@ function fetchPageUrl(name, year, isSeries) {
   return __async(this, null, function* () {
     const domain = yield fetchLatestDomain();
     const searchUrl = `${domain}/?s=${encodeURIComponent(name + " " + year)}`;
-    console.log(`[4KHDHub] Search Request URL: ${searchUrl}`);
+    console.log(`[cinecalidad] Search Request URL: ${searchUrl}`);
     const html = yield fetchText(searchUrl);
     if (!html) {
       console.log("[cinecalidad] Search failed: No HTML response");
@@ -232,7 +232,7 @@ function fetchPageUrl(name, year, isSeries) {
 var cheerio2 = require("cheerio-without-node-native");
 function resolveRedirectUrl(redirectUrl) {
   return __async(this, null, function* () {
-    if (redirectUrl.includes("hubcloud.") || redirectUrl.includes("hubdrive.")) {
+    if (redirectUrl.includes("turbobit.") || redirectUrl.includes("mega.")) {
       return redirectUrl;
     }
     const redirectHtml = yield fetchText(redirectUrl);
@@ -271,37 +271,37 @@ function extractSourceResults($, el) {
       height,
       title
     };
-    const hblinksLink = $(el).find("a").filter((_, a) => {
+    const TurboBitlinksLink = $(el).find("a").filter((_, a) => {
       const href = $(a).attr("href") || "";
-      return href.includes("hblinks") || href.includes("hubstream.dad");
+      return href.includes("TurboBitlinks") || href.includes("turbobit.net");
     }).attr("href");
-    if (hblinksLink) {
-      return { url: new URL(hblinksLink, BASE_URL).toString(), meta, extractor: "hblinks" };
+    if (TurboBitlinks) {
+      return { url: new URL(TurboBitlinks, BASE_URL).toString(), meta, extractor: "TurboBitlinks" };
     }
-    const hubCloudLink = $(el).find("a").filter((_, a) => {
+    const TurboBitlinks = $(el).find("a").filter((_, a) => {
       const text = $(a).text();
       const href = $(a).attr("href") || "";
-      return text.includes("HubCloud") || href.includes("hubcloud.") || href.includes("hubcloud/");
+      return text.includes("TurboBit") || href.includes("turbobit.") || href.includes("turbobit/");
     }).attr("href");
-    if (hubCloudLink) {
-      const resolved = yield resolveRedirectUrl(hubCloudLink);
+    if (TurboBitlinks) {
+      const resolved = yield resolveRedirectUrl(TurboBitlinks);
       return { url: resolved, meta };
     }
     const hubDriveLink = $(el).find("a").filter((_, a) => {
       const text = $(a).text();
       const href = $(a).attr("href") || "";
-      return text.includes("HubDrive") || href.includes("hubdrive.") || href.includes("hubdrive/");
+      return text.includes("Mega") || href.includes("mega.") || href.includes("mega/");
     }).attr("href");
-    if (hubDriveLink) {
-      const resolvedDrive = yield resolveRedirectUrl(hubDriveLink);
+    if (megaLink) {
+      const resolvedDrive = yield resolveRedirectUrl(megaLink);
       if (resolvedDrive) {
-        const hubDriveHtml = yield fetchText(resolvedDrive);
-        if (hubDriveHtml) {
-          const $2 = cheerio2.load(hubDriveHtml);
-          const innerCloudLink = $2('a:contains("HubCloud")').attr("href") || $2("a").filter((_, a) => {
+        const megaHtml = yield fetchText(resolvedDrive);
+        if (megaHtml) {
+          const $2 = cheerio2.load(megaHtml);
+          const innerCloudLink = $2('a:contains("Mega")').attr("href") || $2("a").filter((_, a) => {
             const text = $2(a).text();
             const href = $2(a).attr("href") || "";
-            return text.includes("HubCloud") || href.includes("hubcloud.") || href.includes("hubcloud/");
+            return text.includes("Mega") || href.includes("mega.") || href.includes("mega/");
           }).attr("href");
           if (innerCloudLink) {
             return { url: innerCloudLink, meta };
@@ -312,18 +312,18 @@ function extractSourceResults($, el) {
     return null;
   });
 }
-function extractHubCloud(hubCloudUrl, baseMeta) {
+function extractTurbobBit(TurboBitUrl, baseMeta) {
   return __async(this, null, function* () {
-    if (!hubCloudUrl)
+    if (!TurboBitUrl)
       return [];
-    const redirectHtml = yield fetchText(hubCloudUrl, { headers: { Referer: hubCloudUrl } });
+    const redirectHtml = yield fetchText(TurboBitUrl, { headers: { Referer: TurboBitUrl } });
     if (!redirectHtml)
       return [];
     const redirectUrlMatch = redirectHtml.match(/var url ?= ?'(.*?)'/);
     if (!redirectUrlMatch)
       return [];
     const finalLinksUrl = redirectUrlMatch[1];
-    const linksHtml = yield fetchText(finalLinksUrl, { headers: { Referer: hubCloudUrl } });
+    const linksHtml = yield fetchText(finalLinksUrl, { headers: { Referer: TurboBitUrl } });
     if (!linksHtml)
       return [];
     const $ = cheerio2.load(linksHtml);
@@ -339,41 +339,35 @@ function extractHubCloud(hubCloudUrl, baseMeta) {
       const href = $(el).attr("href");
       if (!href)
         return;
-      if (text.includes("10Gbps") || text.includes("PixelServer") || href.includes("hubcloud.cx")) {
+      if (text.includes("TurboBit") || href.includes("turbobit.net")) {
         results.push({
-          source: "HubCloud 10Gbps",
+          source: "TurboBit 10Gbps",
           url: href,
           meta: currentMeta
         });
-      } else if (text.includes("Download File") || href.includes("r2.dev")) {
-        results.push({
-          source: "Direct R2",
-          url: href,
-          meta: currentMeta
-        });
-      } else if (text.includes("ZipDisk") || href.includes("workers.dev")) {
-        results.push({
-          source: "ZipDisk Server",
-          url: href,
-          meta: currentMeta
-        });
-      } else if (text.includes("FSL")) {
-        results.push({
-          source: "FSL",
-          url: href,
-          meta: currentMeta
-        });
-      }
-    });
-    return results;
+     } else if (text.includes("TurboBit") || href.includes("turbobit.net")) {
+  results.push({
+    source: "TurboBit",
+    url: href,
+    meta: currentMeta
+  });
+} else if (text.includes("Mega") || href.includes("mega.nz")) {
+  results.push({
+    source: "Mega",
+    url: href,
+    meta: currentMeta
   });
 }
-function extractHblinks(hblinksUrl, baseMeta, depth = 0) {
+});
+return results;
+});
+}
+function extractTurboBitlinks(TurboBitlinksUrl, baseMeta, depth = 0) {
   return __async(this, null, function* () {
-    if (!hblinksUrl || depth > 2)
+    if (!TurboBitlinksUrl || depth > 2)
       return [];
     try {
-      const html = yield fetchText(hblinksUrl, { headers: { Referer: hblinksUrl } });
+      const html = yield fetchText(TurboBitlinksUrl, { headers: { Referer: TurboBitlinksUrl } });
       if (!html)
         return [];
       const $ = cheerio2.load(html);
@@ -381,33 +375,33 @@ function extractHblinks(hblinksUrl, baseMeta, depth = 0) {
       const results = [];
       for (const rawLink of links) {
         try {
-          const absoluteLink = new URL(rawLink, hblinksUrl).toString();
+          const absoluteLink = new URL(rawLink, TurboBitlinksUrl).toString();
           const resolvedLink = yield resolveRedirectUrl(absoluteLink);
           const link = resolvedLink || absoluteLink;
           const hostname = new URL(link).hostname.toLowerCase();
-          if (hostname.includes("hblinks") || hostname.includes("hubstream.dad")) {
-            const nestedResults = yield extractHblinks(link, baseMeta, depth + 1);
+          if (hostname.includes("TurboBitlinks") || hostname.includes("turbobit.net")) {
+            const nestedResults = yield extractTurboBitlinks(link, baseMeta, depth + 1);
             results.push(...nestedResults);
-          } else if (hostname.includes("hubcloud")) {
-            const cloudResults = yield extractHubCloud(link, baseMeta);
+          } else if (hostname.includes("turbobit")) {
+            const cloudResults = yield extractturbobit(link, baseMeta);
             results.push(...cloudResults);
-          } else if (hostname.includes("hubdrive")) {
-            const driveHtml = yield fetchText(link, { headers: { Referer: hblinksUrl } });
+          } else if (hostname.includes("mega")) {
+            const driveHtml = yield fetchText(link, { headers: { Referer: TurboBitlinksUrl } });
             if (driveHtml) {
               const $drive = cheerio2.load(driveHtml);
               const cloudLink = $drive("a").filter((_, a) => {
                 const text = $drive(a).text();
                 const href = $drive(a).attr("href") || "";
-                return text.includes("HubCloud") || href.includes("hubcloud.") || href.includes("hubcloud/");
+                return text.includes("TurboBit") || href.includes("turbobit.") || href.includes("turbobit/");
               }).attr("href");
               if (cloudLink) {
                 const absoluteCloudLink = new URL(cloudLink, link).toString();
-                const cloudResults = yield extractHubCloud(absoluteCloudLink, baseMeta);
+                const cloudResults = yield extractmega(absoluteCloudLink, baseMeta);
                 results.push(...cloudResults);
               }
             }
           } else if (/\.(m3u8|mpd|mp4|mkv)(?:$|\?)/i.test(link)) {
-            results.push({ source: "Hblinks Direct", url: link, meta: baseMeta });
+            results.push({ source: "TurboBitlinks Direct", url: link, meta: baseMeta });
           }
         } catch (e) {
         }
@@ -459,12 +453,12 @@ function getStreams(tmdbId, type, season, episode) {
       try {
         const sourceResult = yield extractSourceResults($, item);
         if (sourceResult && sourceResult.url) {
-          console.log(`[cinecalidad] Extracting from ${sourceResult.extractor === "hblinks" ? "Hblinks" : "HubCloud"}: ${sourceResult.url}`);
+          console.log(`[cinecalidad] Extracting from ${sourceResult.extractor === "TurboBitlinks" ? "TurboBitlinks" : "TurboBit"}: ${sourceResult.url}`);
           let extractedLinks;
-          if (sourceResult.extractor === "hblinks") {
-            extractedLinks = yield extractHblinks(sourceResult.url, sourceResult.meta);
+          if (sourceResult.extractor === "TurboBitlinks") {
+            extractedLinks = yield extractTurboBitlinks(sourceResult.url, sourceResult.meta);
           } else {
-            extractedLinks = yield extractHubCloud(sourceResult.url, sourceResult.meta);
+            extractedLinks = yield extracmegalink(sourceResult.url, sourceResult.meta);
           }
           return extractedLinks.map((link) => ({
             name: `4KHDHub - ${link.source}${sourceResult.meta.height ? ` ${sourceResult.meta.height}p` : ""}`,
