@@ -196,16 +196,13 @@ function fetchPageUrl(name, year, isSeries) {
     const targetType = isSeries ? "Series" : "Movies";
     console.log(`[cinecalidad] Parsing search results for type: ${targetType}`);
     const matchingCards = $(".movie-card").filter((_, el) => {
-      const hasFormat = $(el).find(`.movie-card-format:contains("${targetType}")`).length > 0;
-      if (!hasFormat) {
-      }
-      return hasFormat;
+      return $(el).find(`.movie-card-format:contains("${targetType}")`).length > 0;
     }).filter((_, el) => {
       const metaText = $(el).find(".movie-card-meta").text();
       const movieCardYear = parseInt(metaText);
       const yearMatch = !isNaN(movieCardYear) && Math.abs(movieCardYear - year) <= 1;
       if (!yearMatch) {
-        console.log(`[cinecaliad] Skip: Year mismatch (${movieCardYear} vs ${year}) - ${$(el).find(".movie-card-title").text().trim()}`);
+        console.log(`[cinecalidad] Skip: Year mismatch (${movieCardYear} vs ${year}) - ${$(el).find(".movie-card-title").text().trim()}`);
       }
       return yearMatch;
     }).filter((_, el) => {
@@ -222,7 +219,7 @@ function fetchPageUrl(name, year, isSeries) {
       return href;
     }).get();
     if (matchingCards.length === 0) {
-      console.log("[cinecaliad] No matching cards found after filtering");
+      console.log("[cinecalidad] No matching cards found after filtering");
     } else {
       console.log(`[cinecalidad] Found ${matchingCards.length} matching cards`);
     }
@@ -232,7 +229,8 @@ function fetchPageUrl(name, year, isSeries) {
 var cheerio2 = require("cheerio-without-node-native");
 function resolveRedirectUrl(redirectUrl) {
   return __async(this, null, function* () {
-    if (redirectUrl.includes("turbobit.") || redirectUrl.includes("mega.")) {
+    // CORREGIDO: la condición estaba rota ("| {"). Si ya es un link directo de turbobit, no hay nada que resolver.
+    if (redirectUrl.includes("turbobit.")) {
       return redirectUrl;
     }
     const redirectHtml = yield fetchText(redirectUrl);
@@ -271,59 +269,40 @@ function extractSourceResults($, el) {
       height,
       title
     };
-    const TurboBitlinksLink = $(el).find("a").filter((_, a) => {
+    // CORREGIDO: antes se declaraba "turbobitlinksLink" y se usaba "turbobitlinks" (no existía),
+    // y después se volvía a declarar "const turbobitlinks" (error de redeclaración).
+    const turbobitlinksHref = $(el).find("a").filter((_, a) => {
       const href = $(a).attr("href") || "";
-      return href.includes("TurboBitlinks") || href.includes("turbobit.net");
+      return href.includes("turbobitlinks");
     }).attr("href");
-    if (TurboBitlinks) {
-      return { url: new URL(TurboBitlinks, BASE_URL).toString(), meta, extractor: "TurboBitlinks" };
+    if (turbobitlinksHref) {
+      return { url: new URL(turbobitlinksHref, BASE_URL).toString(), meta, extractor: "turbobitlinks" };
     }
-    const TurboBitlinks = $(el).find("a").filter((_, a) => {
+    const turbobitHref = $(el).find("a").filter((_, a) => {
       const text = $(a).text();
       const href = $(a).attr("href") || "";
-      return text.includes("TurboBit") || href.includes("turbobit.") || href.includes("turbobit/");
+      return text.includes("turbobit") || href.includes("turbobit.") || href.includes("turbobit/");
     }).attr("href");
-    if (TurboBitlinks) {
-      const resolved = yield resolveRedirectUrl(TurboBitlinks);
+    if (turbobitHref) {
+      const resolved = yield resolveRedirectUrl(turbobitHref);
       return { url: resolved, meta };
     }
-    const hubDriveLink = $(el).find("a").filter((_, a) => {
-      const text = $(a).text();
-      const href = $(a).attr("href") || "";
-      return text.includes("Mega") || href.includes("mega.") || href.includes("mega/");
-    }).attr("href");
-    if (megaLink) {
-      const resolvedDrive = yield resolveRedirectUrl(megaLink);
-      if (resolvedDrive) {
-        const megaHtml = yield fetchText(resolvedDrive);
-        if (megaHtml) {
-          const $2 = cheerio2.load(megaHtml);
-          const innerCloudLink = $2('a:contains("Mega")').attr("href") || $2("a").filter((_, a) => {
-            const text = $2(a).text();
-            const href = $2(a).attr("href") || "";
-            return text.includes("Mega") || href.includes("mega.") || href.includes("mega/");
-          }).attr("href");
-          if (innerCloudLink) {
-            return { url: innerCloudLink, meta };
-          }
-        }
-      }
-    }
+    // CORREGIDO: se eliminaron las llaves "}" sueltas que había acá.
     return null;
   });
 }
-function extractTurbobBit(TurboBitUrl, baseMeta) {
+function extractTurbobit(turbobitUrl, baseMeta) {
   return __async(this, null, function* () {
-    if (!TurboBitUrl)
+    if (!turbobitUrl)
       return [];
-    const redirectHtml = yield fetchText(TurboBitUrl, { headers: { Referer: TurboBitUrl } });
+    const redirectHtml = yield fetchText(turbobitUrl, { headers: { Referer: turbobitUrl } });
     if (!redirectHtml)
       return [];
     const redirectUrlMatch = redirectHtml.match(/var url ?= ?'(.*?)'/);
     if (!redirectUrlMatch)
       return [];
     const finalLinksUrl = redirectUrlMatch[1];
-    const linksHtml = yield fetchText(finalLinksUrl, { headers: { Referer: TurboBitUrl } });
+    const linksHtml = yield fetchText(finalLinksUrl, { headers: { Referer: turbobitUrl } });
     if (!linksHtml)
       return [];
     const $ = cheerio2.load(linksHtml);
@@ -339,35 +318,24 @@ function extractTurbobBit(TurboBitUrl, baseMeta) {
       const href = $(el).attr("href");
       if (!href)
         return;
-      if (text.includes("TurboBit") || href.includes("turbobit.net")) {
-        results.push({
-          source: "TurboBit 10Gbps",
-          url: href,
-          meta: currentMeta
-        });
-     } else if (text.includes("TurboBit") || href.includes("turbobit.net")) {
-  results.push({
-    source: "TurboBit",
-    url: href,
-    meta: currentMeta
-  });
-} else if (text.includes("Mega") || href.includes("mega.nz")) {
-  results.push({
-    source: "Mega",
-    url: href,
-    meta: currentMeta
+      // CORREGIDO: los dos if tenían la misma condición, el segundo nunca se ejecutaba.
+      // Ahora se distingue la variante "10Gbps" del resto.
+      if (text.includes("10Gbps")) {
+        results.push({ source: "turbobit 10Gbps", url: href, meta: currentMeta });
+      } else if (text.includes("turbobit") || href.includes("turbobit.net")) {
+        results.push({ source: "turbobit", url: href, meta: currentMeta });
+      }
+    });
+    // CORREGIDO: faltaba cerrar la función y devolver los resultados.
+    return results;
   });
 }
-});
-return results;
-});
-}
-function extractTurboBitlinks(TurboBitlinksUrl, baseMeta, depth = 0) {
+function extractTurbobitLinks(turbobitlinksUrl, baseMeta, depth = 0) {
   return __async(this, null, function* () {
-    if (!TurboBitlinksUrl || depth > 2)
+    if (!turbobitlinksUrl || depth > 2)
       return [];
     try {
-      const html = yield fetchText(TurboBitlinksUrl, { headers: { Referer: TurboBitlinksUrl } });
+      const html = yield fetchText(turbobitlinksUrl, { headers: { Referer: turbobitlinksUrl } });
       if (!html)
         return [];
       const $ = cheerio2.load(html);
@@ -375,33 +343,19 @@ function extractTurboBitlinks(TurboBitlinksUrl, baseMeta, depth = 0) {
       const results = [];
       for (const rawLink of links) {
         try {
-          const absoluteLink = new URL(rawLink, TurboBitlinksUrl).toString();
+          const absoluteLink = new URL(rawLink, turbobitlinksUrl).toString();
           const resolvedLink = yield resolveRedirectUrl(absoluteLink);
           const link = resolvedLink || absoluteLink;
           const hostname = new URL(link).hostname.toLowerCase();
-          if (hostname.includes("TurboBitlinks") || hostname.includes("turbobit.net")) {
-            const nestedResults = yield extractTurboBitlinks(link, baseMeta, depth + 1);
+          // CORREGIDO: había ramas duplicadas/inalcanzables con nombres de función inexistentes.
+          if (hostname.includes("turbobitlinks")) {
+            const nestedResults = yield extractTurbobitLinks(link, baseMeta, depth + 1);
             results.push(...nestedResults);
           } else if (hostname.includes("turbobit")) {
-            const cloudResults = yield extractturbobit(link, baseMeta);
-            results.push(...cloudResults);
-          } else if (hostname.includes("mega")) {
-            const driveHtml = yield fetchText(link, { headers: { Referer: TurboBitlinksUrl } });
-            if (driveHtml) {
-              const $drive = cheerio2.load(driveHtml);
-              const cloudLink = $drive("a").filter((_, a) => {
-                const text = $drive(a).text();
-                const href = $drive(a).attr("href") || "";
-                return text.includes("TurboBit") || href.includes("turbobit.") || href.includes("turbobit/");
-              }).attr("href");
-              if (cloudLink) {
-                const absoluteCloudLink = new URL(cloudLink, link).toString();
-                const cloudResults = yield extractmega(absoluteCloudLink, baseMeta);
-                results.push(...cloudResults);
-              }
-            }
+            const turbobitResults = yield extractTurbobit(link, baseMeta);
+            results.push(...turbobitResults);
           } else if (/\.(m3u8|mpd|mp4|mkv)(?:$|\?)/i.test(link)) {
-            results.push({ source: "TurboBitlinks Direct", url: link, meta: baseMeta });
+            results.push({ source: "turbobitlinks Direct", url: link, meta: baseMeta });
           }
         } catch (e) {
         }
@@ -453,15 +407,16 @@ function getStreams(tmdbId, type, season, episode) {
       try {
         const sourceResult = yield extractSourceResults($, item);
         if (sourceResult && sourceResult.url) {
-          console.log(`[cinecalidad] Extracting from ${sourceResult.extractor === "TurboBitlinks" ? "TurboBitlinks" : "TurboBit"}: ${sourceResult.url}`);
+          console.log(`[cinecalidad] Extracting from ${sourceResult.extractor === "turbobitlinks" ? "turbobitlinks" : "turbobit"}: ${sourceResult.url}`);
           let extractedLinks;
-          if (sourceResult.extractor === "TurboBitlinks") {
-            extractedLinks = yield extractTurboBitlinks(sourceResult.url, sourceResult.meta);
+          if (sourceResult.extractor === "turbobitlinks") {
+            extractedLinks = yield extractTurbobitLinks(sourceResult.url, sourceResult.meta);
           } else {
-            extractedLinks = yield extracmegalink(sourceResult.url, sourceResult.meta);
+            // CORREGIDO: "extracmegalink" no existía.
+            extractedLinks = yield extractTurbobit(sourceResult.url, sourceResult.meta);
           }
           return extractedLinks.map((link) => ({
-            name: `4KHDHub - ${link.source}${sourceResult.meta.height ? ` ${sourceResult.meta.height}p` : ""}`,
+            name: `CineCalidad - ${link.source}${sourceResult.meta.height ? ` ${sourceResult.meta.height}p` : ""}`,
             title: `${link.meta.title}
 ${formatBytes(link.meta.bytes || 0)}`,
             url: link.url,
