@@ -43,6 +43,11 @@ var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
 var DOMAINS_URL = "https://raw.githubusercontent.com/Macieles/Argentinapapa/refs/heads/main/domains.json";
 var domainCache = { url: BASE_URL, ts: 0 };
+// Hosts: el intermediario (pagina con varios links) y el host final (de donde salen los streams).
+var INTERMEDIATE_HOSTS = ["turbobitlinks"];
+var FINAL_HOST_KEYS = ["turbobit"]; // incluye turbobit.net
+var isIntermediate = (s) => INTERMEDIATE_HOSTS.some((h) => s.includes(h));
+var isFinalHost = (s) => !isIntermediate(s) && FINAL_HOST_KEYS.some((h) => s.toLowerCase().includes(h));
 function fetchLatestDomain() {
   return __async(this, null, function* () {
     const now = Date.now();
@@ -230,7 +235,7 @@ var cheerio2 = require("cheerio-without-node-native");
 function resolveRedirectUrl(redirectUrl) {
   return __async(this, null, function* () {
     // Original (4KHDHub): if (includes("hubcloud.") || includes("hubdrive.")) return redirectUrl;
-    if (redirectUrl.includes("turbobit.")) {
+    if (isFinalHost(redirectUrl)) {
       return redirectUrl;
     }
     const redirectHtml = yield fetchText(redirectUrl);
@@ -272,7 +277,7 @@ function extractSourceResults($, el) {
     // Equivale a "hblinksLink" del original (intermediario con varios links).
     const turbobitlinksLink = $(el).find("a").filter((_, a) => {
       const href = $(a).attr("href") || "";
-      return href.includes("turbobitlinks") || href.includes("turbobit.net");
+      return isIntermediate(href);
     }).attr("href");
     if (turbobitlinksLink) {
       return { url: new URL(turbobitlinksLink, BASE_URL).toString(), meta, extractor: "turbobitlinks" };
@@ -281,7 +286,7 @@ function extractSourceResults($, el) {
     const turbobitLink = $(el).find("a").filter((_, a) => {
       const text = $(a).text();
       const href = $(a).attr("href") || "";
-      return text.includes("turbobit") || href.includes("turbobit.") || href.includes("turbobit/");
+      return isFinalHost(href) || FINAL_HOST_KEYS.some((h) => text.toLowerCase().includes(h)) && !isIntermediate(href);
     }).attr("href");
     if (turbobitLink) {
       const resolved = yield resolveRedirectUrl(turbobitLink);
@@ -348,10 +353,10 @@ function extractTurbobitLinks(turbobitlinksUrl, baseMeta, depth = 0) {
           const resolvedLink = yield resolveRedirectUrl(absoluteLink);
           const link = resolvedLink || absoluteLink;
           const hostname = new URL(link).hostname.toLowerCase();
-          if (hostname.includes("turbobitlinks") || hostname.includes("turbobit.net")) {
+          if (isIntermediate(hostname)) {
             const nestedResults = yield extractTurbobitLinks(link, baseMeta, depth + 1);
             results.push(...nestedResults);
-          } else if (hostname.includes("turbobit")) {
+          } else if (isFinalHost(hostname)) {
             const cloudResults = yield extractTurbobit(link, baseMeta);
             results.push(...cloudResults);
           } else if (/\.(m3u8|mpd|mp4|mkv)(?:$|\?)/i.test(link)) {
