@@ -20,7 +20,7 @@
       "name": "latinomegahd",
       "description": "movies streams",
       "version": "1.0.0",
-      "author": "macieles,
+      "author": "macieles",
       "supportedTypes": ["movie", "tv"],
       "filename": "providers/latinomegahd.js",
       "enabled": true,
