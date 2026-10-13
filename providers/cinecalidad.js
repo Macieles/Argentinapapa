@@ -24,12 +24,8 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
-    var fulfilled = (value) => {
-      try { step(generator.next(value)); } catch (e) { reject(e); }
-    };
-    var rejected = (value) => {
-      try { step(generator.throw(value)); } catch (e) { reject(e); }
-    };
+    var fulfilled = (value) => { try { step(generator.next(value)); } catch (e) { reject(e); } };
+    var rejected = (value) => { try { step(generator.throw(value)); } catch (e) { reject(e); } };
     var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
     step((generator = generator.apply(__this, __arguments)).next());
   });
@@ -37,33 +33,42 @@ var __async = (__this, __arguments, generator) => {
 
 // src/providers/cinecalidad.js
 var cinecalidad_exports = {};
-__export(cinecalidad_exports, {
-  getStreams: () => getStreams
-});
+__export(cinecalidad_exports, { getStreams: () => getStreams });
 module.exports = __toCommonJS(cinecalidad_exports);
 
-var import_cheerio_without_node_native = __toESM(require("cheerio-without-node-native"));
-
+var import_cheerio = __toESM(require("cheerio-without-node-native"));
 var BASE_URL = "https://www.cinecalidad.my";
-var API_BASE = BASE_URL + "/wp-json/wp/v2";
 var TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 
-var XML_HEADER = {
-  "X-Requested-With": "XMLHttpRequest",
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
+var HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "Accept-Language": "es-AR,es;q=0.9,en;q=0.8"
 };
 
-function fetchJson(url, headers = XML_HEADER) {
+var EMBED_MAP = {
+  "OnlineMega":      (data) => `https://mega.nz/embed/${data}`,
+  "OnlineDoodstream":(data) => `https://doodstream.com/e/${data}`,
+  "OnlineFilemoon":  (data) => `https://bysedikamoum.com/e/${data}`,
+  "OnlineNetu":      (data) => `https://www.zarato.top/watch_video.php?v=${data}`,
+  "OnlineVoe":       (data) => `https://voe.sx/e/${data}`,
+  "Mega":            (data) => `${BASE_URL}/protect/ver.php?i=${data}`,
+  "Trailer":         (data) => `https://www.youtube.com/embed/${data}`
+};
+
+function fetchText(url, headers = HEADERS) {
   return __async(this, null, function* () {
     const res = yield fetch(url, { headers });
-    return yield res.json();
+    if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+    return yield res.text();
   });
 }
 
-function fetchText(url, headers = XML_HEADER) {
+function fetchJson(url, headers = HEADERS) {
   return __async(this, null, function* () {
     const res = yield fetch(url, { headers });
-    return yield res.text();
+    if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+    return yield res.json();
   });
 }
 
@@ -83,79 +88,86 @@ function resolveTmdbId(id, mediaType) {
 function getTmdbTitle(tmdbId, mediaType) {
   return __async(this, null, function* () {
     const url = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
-    const mediaInfo = yield fetchJson(url);
-    return mediaInfo.title || mediaInfo.name;
+    const info = yield fetchJson(url);
+    return info.title || info.name;
   });
 }
 
-function searchPost(title) {
+function searchSite(title) {
   return __async(this, null, function* () {
-    const searchUrl = `${API_BASE}/posts?search=${encodeURIComponent(title)}&per_page=5`;
-    const posts = yield fetchJson(searchUrl);
-    if (!posts || posts.length === 0) return null;
-    // Tomar el primer resultado (o filtrar por título exacto)
-    return posts[0];
+    const searchUrl = `${BASE_URL}/?s=${encodeURIComponent(title)}`;
+    console.log(`[Cinecalidad] Search: ${searchUrl}`);
+    const html = yield fetchText(searchUrl);
+    const $ = import_cheerio.default.load(html);
+
+    let movieUrl = null;
+
+    // Selectores para resultados de búsqueda en cinecalidad
+    $("h2 a, h3 a, .post-title a, article a, .home_post_cont a").each((_, el) => {
+      const href = $(el).attr("href");
+      if (href && !movieUrl) {
+        movieUrl = href.startsWith("http") ? href : BASE_URL + href;
+      }
+    });
+
+    // Fallback: cualquier link con el título
+    if (!movieUrl) {
+      const firstWord = title.toLowerCase().split(" ")[0];
+      $("a").each((_, el) => {
+        const href = $(el).attr("href") || "";
+        const text = $(el).text().trim().toLowerCase();
+        if (href.startsWith("http") && text.includes(firstWord) && href.includes("/pelicula") || href.includes("/serie")) {
+          if (!movieUrl) movieUrl = href;
+        }
+      });
+    }
+
+    if (!movieUrl) {
+      console.log("[Cinecalidad] No movie found");
+      return null;
+    }
+
+    console.log(`[Cinecalidad] Movie URL: ${movieUrl}`);
+    return movieUrl;
   });
 }
 
-function extractStreamsFromContent(contentHtml) {
-  const $ = import_cheerio_without_node_native.default.load(contentHtml);
+function extractServers(html) {
+  const $ = import_cheerio.default.load(html);
   const streams = [];
 
-  // 1) Iframes (embeds directos)
-  $("iframe").each((_, el) => {
-    const src = $(el).attr("src") || $(el).attr("data-src");
-    if (src && !src.includes("google") && !src.includes("youtube")) {
-      streams.push({
-        name: `Cinecalidad - Embed`,
-        title: `Embed ${streams.length + 1}`,
-        url: src,
-        quality: "1080p"
-      });
-    }
-  });
+  // Los links están en div.pane a.link
+  // Atributos: service, data, href
+  // El nombre del server está en <li> dentro del <a>
+  $("div.pane a.link, a.link").each((_, el) => {
+    const service = $(el).attr("service");
+    const data = $(el).attr("data");
+    const name = $(el).find("li").text().trim() || $(el).text().trim() || service;
 
-  // 2) Scripts con source (jwplayer, videojs, etc.)
-  $("script").each((_, el) => {
-    const text = $(el).html() || "";
-    // Patrón: file: "URL" o source: "URL"
-    const fileMatch = text.match(/["']?(?:file|source)["']?\s*[:=]\s*["'](https?:\/\/[^"']+\.m3u8[^"']*)["']/);
-    if (fileMatch) {
-      streams.push({
-        name: `Cinecalidad - HLS`,
-        title: `HLS ${streams.length + 1}`,
-        url: fileMatch[1],
-        quality: "1080p"
-      });
+    if (!service || !data) return;
+    let url;
+    if (EMBED_MAP[service]) {
+      url = EMBED_MAP[service](data);
+    } else {
+      // Fallback: usar el href directamente
+      url = $(el).attr("href");
+      if (!url) return;
     }
-    // Patrón: sources: [{file: "URL"}]
-    const sourcesMatch = text.match(/sources\s*:\s*\[\s*{[^}]*file\s*:\s*["'](https?:\/\/[^"']+)["']/);
-    if (sourcesMatch) {
-      streams.push({
-        name: `Cinecalidad - Player`,
-        title: `Player ${streams.length + 1}`,
-        url: sourcesMatch[1],
-        quality: "1080p"
-      });
-    }
-  });
+    let quality = "Unknown";
+    if (/4k|2160/i.test(name)) quality = "2160p";
+    else if (/1080/i.test(name)) quality = "1080p";
+    else if (/720/i.test(name)) quality = "720p";
 
-  // 3) Elementos con data-src / data-url
-  $("[data-src], [data-url], [data-file]").each((_, el) => {
-    const url = $(el).attr("data-src") || $(el).attr("data-url") || $(el).attr("data-file");
-    if (url && url.startsWith("http")) {
-      streams.push({
-        name: `Cinecalidad - Data`,
-        title: `Data ${streams.length + 1}`,
-        url,
-        quality: "1080p"
-      });
-    }
+    streams.push({
+      name: `Cinecalidad - ${name}`,
+      title: name,
+      url: url,
+      quality: quality
+    });
   });
 
   return streams;
 }
-
 function getStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     try {
@@ -168,25 +180,15 @@ function getStreams(tmdbId, mediaType, season, episode) {
       }
       console.log(`[Cinecalidad] Title: ${title}`);
 
-      // ── Búsqueda en la API de WP ──
-      const post = yield searchPost(title);
-      if (!post) {
-        console.log("[Cinecalidad] No post found");
-        return [];
-      }
-      console.log(`[Cinecalidad] Post: ${post.title.rendered} (ID: ${post.id})`);
+      // Búsqueda
+      const movieUrl = yield searchSite(title);
+      if (!movieUrl) return [];
 
-      // ── Extraer streams del contenido ──
-      const contentHtml = post.content.rendered;
-      const streams = extractStreamsFromContent(contentHtml);
+      // Fetch de la página
+      const pageHtml = yield fetchText(movieUrl);
 
-      // ── Si no hay streams en el contenido, intentar con el link directo ──
-      if (streams.length === 0 && post.link) {
-        console.log("[Cinecalidad] No streams in content, fetching post page...");
-        const pageHtml = yield fetchText(post.link);
-        const pageStreams = extractStreamsFromContent(pageHtml);
-        streams.push(...pageStreams);
-      }
+      // Extraer servers
+      const streams = extractServers(pageHtml);
 
       console.log(`[Cinecalidad] Streams found: ${streams.length}`);
       return streams;
