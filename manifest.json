@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "scrapers": [
     {
-      "id": "cinecalidad",
-      "name": "cinecalidad",
+      "id": "Cinecalidad",
+      "name": "Cinecalidad",
       "description": "movies and TV streaming with PoW session verification and direct HLS streams",
       "version": "1.0.0",
       "author": "macieles",
