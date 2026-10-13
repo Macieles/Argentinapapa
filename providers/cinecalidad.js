@@ -1,443 +1,2152 @@
-"use strict";
-var __defProp = Object.defineProperty;
-var __defProps = Object.defineProperties;
-var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
-var __getOwnPropSymbols = Object.getOwnPropertySymbols;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __propIsEnum = Object.prototype.propertyIsEnumerable;
-var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-var __spreadValues = (a, b) => {
-  for (var prop in b || (b = {}))
-    if (__hasOwnProp.call(b, prop))
-      __defNormalProp(a, prop, b[prop]);
-  if (__getOwnPropSymbols)
-    for (var prop of __getOwnPropSymbols(b)) {
-      if (__propIsEnum.call(b, prop))
-        __defNormalProp(a, prop, b[prop]);
-    }
-  return a;
-};
-var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
-var __async = (__this, __arguments, generator) => {
-  return new Promise((resolve, reject) => {
-    var fulfilled = (value) => {
-      try {
-        step(generator.next(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var rejected = (value) => {
-      try {
-        step(generator.throw(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
-  });
-};
-var BASE_URL = "https://cinecalidad.my";
-var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
-var DOMAINS_URL = "https://raw.githubusercontent.com/Macieles/Argentinapapa/refs/heads/main/domains.json";
-var domainCache = { url: BASE_URL, ts: 0 };
-// Hosts: el intermediario (pagina con varios links) y el host final (de donde salen los streams).
-var INTERMEDIATE_HOSTS = ["turbobitlinks"];
-var FINAL_HOST_KEYS = ["turbobit"]; // incluye turbobit.net
-var isIntermediate = (s) => INTERMEDIATE_HOSTS.some((h) => s.includes(h));
-var isFinalHost = (s) => !isIntermediate(s) && FINAL_HOST_KEYS.some((h) => s.toLowerCase().includes(h));
-function fetchLatestDomain() {
-  return __async(this, null, function* () {
-    const now = Date.now();
-    if (now - domainCache.ts < 36e5)
-      return domainCache.url;
-    try {
-      const response = yield fetch(DOMAINS_URL);
-      const data = yield response.json();
-      if (data && data["cinecalidad"]) {
-        domainCache.url = data["cinecalidad"];
-        domainCache.ts = now;
-      }
-    } catch (e) {
-    }
-    return domainCache.url;
-  });
-}
-function fetchText(_0) {
-  return __async(this, arguments, function* (url, options = {}) {
-    const retries = options.retries !== void 0 ? options.retries : 2;
-    const delay = options.delay !== void 0 ? options.delay : 1e3;
-    for (let i = 0; i <= retries; i++) {
-      try {
-        const response = yield fetch(url, {
-          headers: __spreadValues({
-            "User-Agent": USER_AGENT
-          }, options.headers)
-        });
-        return yield response.text();
-      } catch (err) {
-        console.log(`[cinecalidad] Request failed for ${url}: ${err.message}${i < retries ? `, retrying (${i + 1}/${retries})...` : ""}`);
-      }
-      if (i < retries) {
-        yield new Promise((r) => setTimeout(r, delay * Math.pow(2, i)));
-      }
-    }
-    return null;
-  });
-}
-function getTmdbDetails(tmdbId, type) {
-  return __async(this, null, function* () {
-    const isSeries = type === "series" || type === "tv";
-    const endpoint = isSeries ? "tv" : "movie";
-    const url = `https://api.themoviedb.org/3/${endpoint}/${tmdbId}?api_key=${TMDB_API_KEY}`;
-    console.log(`[cinecalidad] Fetching TMDB details from: ${url}`);
-    try {
-      const response = yield fetch(url);
-      const data = yield response.json();
-      if (isSeries) {
-        return {
-          title: data.name,
-          year: data.first_air_date ? parseInt(data.first_air_date.split("-")[0]) : 0
-        };
-      } else {
-        return {
-          title: data.title,
-          year: data.release_date ? parseInt(data.release_date.split("-")[0]) : 0
-        };
-      }
-    } catch (error) {
-      console.log(`[cinecalidad] TMDB request failed: ${error.message}`);
-      return null;
-    }
-  });
-}
-function atob(input) {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
-  let str = String(input).replace(/=+$/, "");
-  if (str.length % 4 === 1) {
-    throw new Error("'atob' failed: The string to be decoded is not correctly encoded.");
-  }
-  let output = "";
-  for (let bc = 0, bs, buffer, i = 0; buffer = str.charAt(i++); ~buffer && (bs = bc % 4 ? bs * 64 + buffer : buffer, bc++ % 4) ? output += String.fromCharCode(255 & bs >> (-2 * bc & 6)) : 0) {
-    buffer = chars.indexOf(buffer);
-  }
-  return output;
-}
-function rot13Cipher(str) {
-  return str.replace(/[a-zA-Z]/g, function(c) {
-    return String.fromCharCode((c <= "Z" ? 90 : 122) >= (c = c.charCodeAt(0) + 13) ? c : c - 26);
-  });
-}
-function levenshteinDistance(s, t) {
-  if (s === t)
-    return 0;
-  const n = s.length;
-  const m = t.length;
-  if (n === 0)
-    return m;
-  if (m === 0)
-    return n;
-  const d = [];
-  for (let i = 0; i <= n; i++) {
-    d[i] = [];
-    d[i][0] = i;
-  }
-  for (let j = 0; j <= m; j++) {
-    d[0][j] = j;
-  }
-  for (let i = 1; i <= n; i++) {
-    for (let j = 1; j <= m; j++) {
-      const cost = s.charAt(i - 1) === t.charAt(j - 1) ? 0 : 1;
-      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
-    }
-  }
-  return d[n][m];
-}
-function parseBytes(val) {
-  if (typeof val === "number")
-    return val;
-  if (!val)
-    return 0;
-  const match = val.match(/^([0-9.]+)\s*([a-zA-Z]+)$/);
-  if (!match)
-    return 0;
-  const num = parseFloat(match[1]);
-  const unit = match[2].toLowerCase();
-  let multiplier = 1;
-  if (unit.indexOf("k") === 0)
-    multiplier = 1024;
-  else if (unit.indexOf("m") === 0)
-    multiplier = 1024 * 1024;
-  else if (unit.indexOf("g") === 0)
-    multiplier = 1024 * 1024 * 1024;
-  else if (unit.indexOf("t") === 0)
-    multiplier = 1024 * 1024 * 1024 * 1024;
-  return num * multiplier;
-}
-function formatBytes(val) {
-  if (val === 0)
-    return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB", "TB"];
-  let i = Math.floor(Math.log(val) / Math.log(k));
-  if (i < 0)
-    i = 0;
-  return parseFloat((val / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-}
-var cheerio = require("cheerio-without-node-native");
-function fetchPageUrl(name, year, isSeries) {
-  return __async(this, null, function* () {
-    const domain = yield fetchLatestDomain();
-    const searchUrl = `${domain}/?s=${encodeURIComponent(name + " " + year)}`;
-    console.log(`[cinecalidad] Search Request URL: ${searchUrl}`);
-    const html = yield fetchText(searchUrl);
-    if (!html) {
-      console.log("[cinecalidad] Search failed: No HTML response");
-      return null;
-    }
-    const $ = cheerio.load(html);
-    const targetType = isSeries ? "Series" : "Movies";
-    console.log(`[cinecalidad] Parsing search results for type: ${targetType}`);
-    const matchingCards = $(".movie-card").filter((_, el) => {
-      return $(el).find(`.movie-card-format:contains("${targetType}")`).length > 0;
-    }).filter((_, el) => {
-      const metaText = $(el).find(".movie-card-meta").text();
-      const movieCardYear = parseInt(metaText);
-      const yearMatch = !isNaN(movieCardYear) && Math.abs(movieCardYear - year) <= 1;
-      if (!yearMatch) {
-        console.log(`[cinecalidad] Skip: Year mismatch (${movieCardYear} vs ${year}) - ${$(el).find(".movie-card-title").text().trim()}`);
-      }
-      return yearMatch;
-    }).filter((_, el) => {
-      const movieCardTitle = $(el).find(".movie-card-title").text().replace(/\[.*?]/g, "").trim();
-      const distance = levenshteinDistance(movieCardTitle.toLowerCase(), name.toLowerCase());
-      const match = distance < 5;
-      console.log(`[cinecalidad] Checking: "${movieCardTitle}" (Dist: ${distance}) vs "${name}"`);
-      return match;
-    }).map((_, el) => {
-      let href = $(el).attr("href");
-      if (href && !href.startsWith("http")) {
-        href = domain + (href.startsWith("/") ? "" : "/") + href;
-      }
-      return href;
-    }).get();
-    if (matchingCards.length === 0) {
-      console.log("[cinecalidad] No matching cards found after filtering");
-    } else {
-      console.log(`[cinecalidad] Found ${matchingCards.length} matching cards`);
-    }
-    return matchingCards.length > 0 ? matchingCards[0] : null;
-  });
-}
-var cheerio2 = require("cheerio-without-node-native");
-function resolveRedirectUrl(redirectUrl) {
-  return __async(this, null, function* () {
-    // Original (4KHDHub): if (includes("hubcloud.") || includes("hubdrive.")) return redirectUrl;
-    if (isFinalHost(redirectUrl)) {
-      return redirectUrl;
-    }
-    const redirectHtml = yield fetchText(redirectUrl);
-    if (!redirectHtml)
-      return redirectUrl;
-    try {
-      const redirectDataMatch = redirectHtml.match(/'o','(.*?)'/);
-      if (!redirectDataMatch)
-        return redirectUrl;
-      const step1 = atob(redirectDataMatch[1]);
-      const step2 = atob(step1);
-      const step3 = rot13Cipher(step2);
-      const step4 = atob(step3);
-      const redirectData = JSON.parse(step4);
-      if (redirectData && redirectData.o) {
-        return atob(redirectData.o);
-      }
-    } catch (e) {
-      console.log(`[cinecalidad] Error resolving redirect: ${e.message}`);
-    }
-    return redirectUrl;
-  });
-}
-function extractSourceResults($, el) {
-  return __async(this, null, function* () {
-    const localHtml = $(el).html();
-    const sizeMatch = localHtml.match(/([\d.]+ ?[GM]B)/);
-    const heightMatch = localHtml.match(/\d{3,}p/);
-    const title = $(el).find(".file-title, .episode-file-title").text().trim();
-    let height = heightMatch ? parseInt(heightMatch[0]) : 0;
-    if (height === 0 && (title.includes("4K") || title.includes("4k") || localHtml.includes("4K") || localHtml.includes("4k"))) {
-      height = 2160;
-    }
-    const meta = {
-      bytes: sizeMatch ? parseBytes(sizeMatch[1]) : 0,
-      height,
-      title
-    };
-    // Equivale a "hblinksLink" del original (intermediario con varios links).
-    const turbobitlinksLink = $(el).find("a").filter((_, a) => {
-      const href = $(a).attr("href") || "";
-      return isIntermediate(href);
-    }).attr("href");
-    if (turbobitlinksLink) {
-      return { url: new URL(turbobitlinksLink, BASE_URL).toString(), meta, extractor: "turbobitlinks" };
-    }
-    // Equivale a "hubCloudLink" del original (host final).
-    const turbobitLink = $(el).find("a").filter((_, a) => {
-      const text = $(a).text();
-      const href = $(a).attr("href") || "";
-      return isFinalHost(href) || FINAL_HOST_KEYS.some((h) => text.toLowerCase().includes(h)) && !isIntermediate(href);
-    }).attr("href");
-    if (turbobitLink) {
-      const resolved = yield resolveRedirectUrl(turbobitLink);
-      return { url: resolved, meta };
-    }
-    return null;
-  });
-}
-function extractTurbobit(turbobitUrl, baseMeta) {
-  return __async(this, null, function* () {
-    if (!turbobitUrl)
-      return [];
-    const redirectHtml = yield fetchText(turbobitUrl, { headers: { Referer: turbobitUrl } });
-    if (!redirectHtml)
-      return [];
-    const redirectUrlMatch = redirectHtml.match(/var url ?= ?'(.*?)'/);
-    if (!redirectUrlMatch)
-      return [];
-    const finalLinksUrl = redirectUrlMatch[1];
-    const linksHtml = yield fetchText(finalLinksUrl, { headers: { Referer: turbobitUrl } });
-    if (!linksHtml)
-      return [];
-    const $ = cheerio2.load(linksHtml);
-    const results = [];
-    const sizeText = $("#size").text();
-    const titleText = $("title").text().trim();
-    const currentMeta = __spreadProps(__spreadValues({}, baseMeta), {
-      bytes: parseBytes(sizeText) || baseMeta.bytes,
-      title: titleText || baseMeta.title
-    });
-    // Se restauran las 4 ramas del original (en cinecalidad habían quedado 2 iguales).
-    $("a").each((_, el) => {
-      const text = $(el).text().trim();
-      const href = $(el).attr("href");
-      if (!href)
-        return;
-      if (text.includes("10Gbps") || text.includes("PixelServer") || href.includes("turbobit.net")) {
-        results.push({ source: "turbobit 10Gbps", url: href, meta: currentMeta });
-      } else if (text.includes("Download File") || href.includes("r2.dev")) {
-        results.push({ source: "Direct R2", url: href, meta: currentMeta });
-      } else if (text.includes("ZipDisk") || href.includes("workers.dev")) {
-        results.push({ source: "ZipDisk Server", url: href, meta: currentMeta });
-      } else if (text.includes("FSL")) {
-        results.push({ source: "FSL", url: href, meta: currentMeta });
-      }
-    });
-    return results;
-  });
-}
-function extractTurbobitLinks(turbobitlinksUrl, baseMeta, depth = 0) {
-  return __async(this, null, function* () {
-    if (!turbobitlinksUrl || depth > 2)
-      return [];
-    try {
-      const html = yield fetchText(turbobitlinksUrl, { headers: { Referer: turbobitlinksUrl } });
-      if (!html)
-        return [];
-      const $ = cheerio2.load(html);
-      const links = [...new Set($("h3 a, h5 a, div.entry-content p a, div.entry-content a").map((_, el) => $(el).attr("href")).get().filter(Boolean))];
-      const results = [];
-      for (const rawLink of links) {
-        try {
-          const absoluteLink = new URL(rawLink, turbobitlinksUrl).toString();
-          const resolvedLink = yield resolveRedirectUrl(absoluteLink);
-          const link = resolvedLink || absoluteLink;
-          const hostname = new URL(link).hostname.toLowerCase();
-          if (isIntermediate(hostname)) {
-            const nestedResults = yield extractTurbobitLinks(link, baseMeta, depth + 1);
-            results.push(...nestedResults);
-          } else if (isFinalHost(hostname)) {
-            const cloudResults = yield extractTurbobit(link, baseMeta);
-            results.push(...cloudResults);
-          } else if (/\.(m3u8|mpd|mp4|mkv)(?:$|\?)/i.test(link)) {
-            results.push({ source: "turbobitlinks Direct", url: link, meta: baseMeta });
-          }
-        } catch (e) {
-        }
-      }
-      return results;
-    } catch (e) {
-      return [];
-    }
-  });
-}
-var cheerio3 = require("cheerio-without-node-native");
-function getStreams(tmdbId, type, season, episode) {
-  return __async(this, null, function* () {
-    const tmdbDetails = yield getTmdbDetails(tmdbId, type);
-    if (!tmdbDetails)
-      return [];
-    const { title, year } = tmdbDetails;
-    console.log(`[cinecalidad] Search: ${title} (${year})`);
-    const isSeries = type === "series" || type === "tv";
-    const pageUrl = yield fetchPageUrl(title, year, isSeries);
-    if (!pageUrl) {
-      console.log("[cinecalidad] Page not found");
-      return [];
-    }
-    console.log(`[cinecalidad] Found page: ${pageUrl}`);
-    const html = yield fetchText(pageUrl);
-    if (!html)
-      return [];
-    const $ = cheerio3.load(html);
-    const itemsToProcess = [];
-    if (isSeries && season && episode) {
-      const seasonStr = "S" + String(season).padStart(2, "0");
-      const episodeStr = "Episode-" + String(episode).padStart(2, "0");
-      $(".episode-item").each((_, el) => {
-        if ($(".episode-title", el).text().includes(seasonStr)) {
-          const downloadItems = $(".episode-download-item", el).filter((_2, item) => $(item).text().includes(episodeStr));
-          downloadItems.each((_2, item) => {
-            itemsToProcess.push(item);
-          });
-        }
-      });
-    } else {
-      $(".download-item").each((_, el) => {
-        itemsToProcess.push(el);
-      });
-    }
-    console.log(`[cinecalidad] Processing ${itemsToProcess.length} items`);
-    const streamPromises = itemsToProcess.map((item) => __async(this, null, function* () {
-      try {
-        const sourceResult = yield extractSourceResults($, item);
-        if (sourceResult && sourceResult.url) {
-          console.log(`[cinecalidad] Extracting from ${sourceResult.extractor === "turbobitlinks" ? "turbobitlinks" : "turbobit"}: ${sourceResult.url}`);
-          let extractedLinks;
-          if (sourceResult.extractor === "turbobitlinks") {
-            extractedLinks = yield extractTurbobitLinks(sourceResult.url, sourceResult.meta);
-          } else {
-            extractedLinks = yield extractTurbobit(sourceResult.url, sourceResult.meta);
-          }
-          return extractedLinks.map((link) => ({
-            name: `CineCalidad - ${link.source}${sourceResult.meta.height ? ` ${sourceResult.meta.height}p` : ""}`,
-            title: `${link.meta.title}
-${formatBytes(link.meta.bytes || 0)}`,
-            url: link.url,
-            quality: sourceResult.meta.height ? `${sourceResult.meta.height}p` : void 0,
-            behaviorHints: {
-              bingeGroup: `cinecalidad-${link.source}`
-            }
-          }));
-        }
-        return [];
-      } catch (err) {
-        console.log(`[cinecalidad] Item processing error: ${err.message}`);
-        return [];
-      }
-    }));
-    const results = yield Promise.all(streamPromises);
-    return results.reduce((acc, val) => acc.concat(val), []);
-  });
-}
-module.exports = { getStreams };
+#EXTM3U
+
+###### Películas ######
+
+#EXTINF:-1 tvg-logo="https://es.web.img3.acsta.net/pictures/20/03/05/10/49/3147329.jpg" group-title="Película",El Robo del Siglo (2020)
+http://45.226.28.9:8085/cloud_2/El.robo.del.siglo.2020.720.lat.mp4
+#https://dl.dropboxusercontent.com/s/u2s8jabw42d058v/El.robo.del.siglo.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BYjZiYzE4N2ItYzQ5Yy00ZmIxLTg5YTQtMGI3NzMzMWI5MjBjXkEyXkFqcGc@._V1_.jpg" group-title="Película",Homo Argentum (2025)
+http://45.226.28.9:8085/cloud_1/Homo.Argentum.2025.720.lat.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/7b371349946b8f9db09651bcdf78c6d16f7edddd03f3c18f26d5d6194f4c3859.jpg" group-title="Película",1985 (2022)
+http://45.226.28.9:8085/cloud_2/Argentina.1985.2022.720.lat.mp4
+#https://dl.dropbox.com/scl/fi/uufbupmiq4b7tbv07lzw9/Argentina-1985.mp4?rlkey=tqnj8xy9ppm9aa6f37qh9988d&dl=0
+
+##EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BZjUxZDAxYmQtZDBjZS00Yzg2LWFiYzMtZDNiMzA1OWU3YWRmXkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Película",Granizo (2022)
+#http://livetv-plus.com:8880/M0VtenJDeFE3S3l0RmtkT25KRkpBbUdkU21WU1FXRmZBSlRpYlprWWFJdTEwNDJGZU81TVhvN0lpWlVld1hUSA
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/5e2eb4a6e307994bfc5302c68c85523f2c0f111be0ee4f07a93b4fe518fb9a4e.png" group-title="Película",Sonido de Libertad (2023) 
+http://45.226.28.9:8085/cloud_1/Sonido.de.libertad.2023.720.lat.mp4
+#https://grrfff66me7t.objectstorage.sa-saopaulo-1.oci.customer-oci.com/n/grrfff66me7t/b/Cubojoselyn/o/reset%2Fpeliculas%2Foctubre%2FVer%20Sonido%20De%20Libertad%20online%20HD%20-%20Cuevana%202.mp4
+#https://dl.dropbox.com/scl/fi/y2u80j9c3lnfd5ihzd1ig/s0und0ofr33d0m.mp4?rlkey=4vwygkgsse7pd9f6wyqj8839m
+
+#EXTINF:-1 tvg-logo="https://micartelera.com.ar/images/peliculas/poster/oppenheimer_poster.jpg" group-title="Película",Oppenheimer (2023) 
+https://archive.org/download/captura-de-pantalla-2023-09-08-184347/Oppenheimer%20%282023%29.1080p.dual-lat.cinecalidad.com.mx.mp4
+#http://45.226.28.9:8085/cloud_2/Oppenheimer.2023.720.lat.mp4
+
+#EXTINF:-1 tvg-logo="https://es.web.img3.acsta.net/pictures/21/02/11/13/43/1699835.jpg" group-title="Película",Madame Curie (2019)
+https://archive.org/download/9edb-3e-054d-318eba-192c-07a-809315e-72/Radioactive%20%282019%29%20HD-1080p.mkv
+
+#EXTINF:-1 tvg-logo="https://sanlorenzoprimero.com.ar/wp-content/uploads/2024/01/la-sociedad-de-la-nieve-20240110-1735376.jpg" group-title="Película",La sociedad de la nieve (2023)
+https://axa4wow3dcia.objectstorage.us-phoenix-1.oci.customer-oci.com/n/axa4wow3dcia/b/bucket-20201001-1658/o/Ver%20La%20sociedad%20de%20la%20nieve%20online%20HD%20-%20Cuevana%202.mp4
+#https://archive.org/download/238575ef-6f-92d-20796a-8b-75915fbffb-9-1/La.sociedad.de.la.nieve.2024.720p-Cast.mkv
+#http://45.226.28.9:8085/cloud_2/La.sociedad.de.la.nieve.2024.720.lat.mp4
+
+#EXTINF:-1 tvg-logo="https://i.blogs.es/617452/1917-cartel/450_1000.jpeg" group-title="Película",1917 (2019) 
+https://archive.org/download/09_20260501/upload/09.mp4
+#https://archive.org/download/1917_20240801/1917.mp4
+#https://archive.org/download/tapita/tapita/tapita.mkv
+
+#EXTINF:-1 tvg-logo="https://es.web.img3.acsta.net/c_310_420/pictures/19/09/17/17/03/5442885.jpg" group-title="Película",Joker (2019)
+http://45.226.28.9:8085/cloud_2/Joker.2019.720.lat.mp4
+#http://ia601401.us.archive.org/10/items/000_20191221/3.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BMjM1NGYyMWQtYmZjMy00NzljLWI3YWMtMmQwYTIyMWYwN2M1XkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Película",31 Minutos: Calurosa navidad (2025)
+https://archive.org/download/31-minutos-calurosa-navidad-2025/31%20Minutos_%20Calurosa%20Navidad%20%282025%29.mp4
+
+#EXTINF:-1 tvg-logo="https://i.ytimg.com/vi/VKeJ2mzPszY/hq720.jpg?sqp=-oaymwEhCK4FEIIDSFryq4qpAxMIARUAAAAAGAElAADIQj0AgKJD&rs=AOn4CLAztdq55CqYHon-ARH3s1Vq8MvQRw" group-title="Película",Barbie (2023) 
+http://45.226.28.9:8085/cloud_2/Barbie.2023.720.lat.mp4
+#https://dl.dropbox.com/scl/fi/bjvlufuknwm3l7brteh74/b4rb13.mkv?rlkey=mlxyzbpfk14au1x3b8cv41tcl
+#https://archive.org/download/captura-de-pantalla-2023-11-11-005823/Barbie.2023.720p-Dual-Lat.mkv
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BOWMwYjYzYmMtMWQ2Ni00NWUwLTg2MzAtYzkzMDBiZDIwOTMwXkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Película",Wicked (2024)
+http://45.226.28.9:8085/cloud_2/Wicked.2024.720.lat.mp4
+
+#EXTINF:-1 tvg-logo="https://www.aceprensa.com/wp-content/uploads/2025/06/f1-la-pelicula-818x1024.jpg" group-title="Película",F1 la película (2025)
+http://45.226.28.9:8085/cloud_2/F1.2025.720.lat.mp4
+#https://archive.org/download/10_20260430_20260430_1725/unix/10.mp4
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSemALoUCxN6MZekgLOeTFAW1SRsEVEnr-nZQ&s" group-title="Película",Bad Boys para siempre (2020)
+https://dl.dropboxusercontent.com/s/gben3yxir2o6ngw/SalynPM-SPM2u6p.mp4?dl=0
+
+#EXTINF:-1 tvg-logo="https://media.themoviedb.org/t/p/w500/oGythE98MYleE6mZlGs5oBGkux1.jpg" group-title="Película",Bad Boys Hasta la muerte (2024)
+http://45.226.28.9:8085/cloud_1/Bad.Boys.Hasta.la.muerte.2024.720.lat.mp4
+#https://archive.org/download/457626384-3837006406554626-8111903668788379276-n/Bad.Boys.Hasta.la.muerte.2024.720p-Dual-Lat.mkv
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRpnpjBBAXSCAbQzLQc2IBQxrZK4mGItMBRoA&s" group-title="Película",Bohemian Rhapsody (2018)
+https://objectstorage.us-phoenix-1.oraclecloud.com/n/axa4wow3dcia/b/bucket-20201001-1658/o/pelisarregladas%2Fparte5%2FVer%20pel%C3%ADcula%20Bohemian%20Rhapsody-%20La%20historia%20de%20Freddie%20Mercury%20online%20gratis%20en%20HD%20%E2%80%A2%20Gnula.mp4
+#https://archive.org/download/la-pas-1i-0on-d-3-cr-1i-5to-2004-1080p-4-33-gb/BoOhe3m1ian%20Rha4ps0dy%20720p%201%2C96%20GB.mkv
+#https://69t.btv.mx/69T/32T/ENG-MOVIE/PEL/Peliculasa2022/P3L1CUL4S/Bohemian%20Rhapsody%20-%20La%20historia%20de%20Freddie%20Mercury%20%282018%29.mp4
+
+##EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BNTVhZmUyMDQtY2I5Ny00OWNiLTgzNjUtMTg4YTQwMTc0OTQxXkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Película",Elvis (2022) 
+#http://livetv-plus.com:8880/M0VtenJDeFE3S3l0RmtkT25KRkpBaWszNithNUNUY0hPb0oxcFZGNWR6SFFxNXFJQlFzZ2lGU29vVDNDb21OYw
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcS7XXRKihjyPN2i-tiCE7KStd3eoE-ho0e3X6bwH00L4KTmCvjzA0IyFcc&s=10" group-title="Película",Michael (2026)
+http://45.226.28.9:8085/cloud_2/Michael.2026.720.lat.mp4
+#http://23.153.217.158:8080/movie/wspdprzjjh/bdkizmamhb/283161.mp4
+
+#EXTINF:-1 tvg-logo="https://play-lh.googleusercontent.com/-y-eWu_8alsDCRx3DMLiJP16FqHaKXVqwMtmydVkjqxLLCchlU5NlhbvaIXZc-T-pmOi=w240-h480-rw" group-title="Película",Había una vez en... Hollywood (2019)
+https://archive.org/download/captura-de-pantalla-2023-11-02-151743/Hab%C3%ADa.una.vez.en.Hollywood.2019.720p-Dual-Lat.mkv
+
+#EXTINF:-1 tvg-logo="https://static.wikia.nocookie.net/doblaje/images/f/f7/Napoleon-poster-2023.jpg/revision/latest?cb=20231019001952&path-prefix=es" group-title="Película",Napoleón (2023) 
+http://45.226.28.9:8085/cloud_2/Napoleon.2023.720.lat.mp4
+#https://axa4wow3dcia.objectstorage.us-phoenix-1.oci.customer-oci.com/n/axa4wow3dcia/b/bucket-20201001-1658/o/Ver%20Napole%C3%B3n%20Online%20Castellano%20Latino%20Subtitulada%20HD%20-%20HDFull_3.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BOGI1ZGY4ODUtMDJlNy00YTdhLWEwNTctMTQ3ZWYwMGUwNTc1XkEyXkFqcGc@._V1_.jpg" group-title="Película",Frankenstein (2025)
+http://45.226.28.9:8085/cloud_2/Frankenstein.2025.720.lat.mp4
+#https://archive.org/download/10_20251106/nano/11.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/fdf356b8fdbdb136e5b2e2ac41aa037e908e03d2e8f057c403f1c78859df4896.jpg" group-title="Película",Una película de Minecraft (2025)
+http://45.226.28.9:8085/cloud_1/Una.pelicula.de.Minecraft.2025.720.lat.mp4
+
+##EXTINF:-1 tvg-logo="https://image.tmdb.org/t/p/original/u6iFFGcOXk4d6C5pZes1qRgU8Nt.jpg" group-title="Película",Los Cuatro Fantásticos: Primeros pasos (2025) 
+#http://livetv-plus.com:8880/M0VtenJDeFE3S3l0RmtkT25KRkpBdFZWVnNvNFBOYXlJd3dYM3p3TnlOSkhpUjdKMjhnQUUyWjJ3TElFZkhBRw
+
+#EXTINF:-1 tvg-logo="https://i.ytimg.com/vi/FzB0iqbqhMo/hq720.jpg?sqp=-oaymwEhCK4FEIIDSFryq4qpAxMIARUAAAAAGAElAADIQj0AgKJD&rs=AOn4CLDacdwjDChcJj9eMTcugvT-PPIU9g" group-title="Película",Amores materialistas (2025)
+http://45.226.28.9:8085/cloud_1/Amores.materialistas.2025.720.lat.mp4
+#https://archive.org/download/04_20250819/text-editors/06.mp4
+#https://archive.org/download/07_20260430_20260430_2109/editores/10.mp4
+
+#EXTINF:-1 tvg-logo="https://is1-ssl.mzstatic.com/image/thumb/Video123/v4/b6/fd/bf/b6fdbf22-8531-8b8c-81a2-8384645b9afd/WTM_H_DD_KA_TT_3840x2160_300dpi_MX.lsr/1200x675.jpg" group-title="Película",¿Quién *&$%! son los Miller? (2013)
+https://objectstorage.us-phoenix-1.oraclecloud.com/n/axa4wow3dcia/b/bucket-20201001-1658/o/pelisarregladas%2F%E2%96%B7%20Ver%20Qui%C3%A9n%20-%26%24%25!%20son%20los%20Miller%20Pelicula%20Completa%20Online%20en%20Espa%C3%B1ol%20Latino.mp4
+
+#EXTINF:-1 tvg-logo="https://cdn.kinocheck.com/i/3plxv4vub8.jpg" group-title="Película",Scary Movie (2000)
+https://archive.org/download/c-4ry-m-0v-1e-2000-1080p-2-92-gb/%24c4ry%20M0v1e%C2%A0%282000%29%201080p%202%2C92%20GB.MKV
+#https://dl.dropbox.com/s/glpmkktp503d2ou/sk4r1m0v131.avi
+#http://archive.org/download/img20200212wa0138/0054433529.mp4
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQeGKe9FkeOdzxRPL0Pe_dZEcbJrbrkmi4QTg&s" group-title="Película",Scary Movie 2 (2001)
+https://archive.org/download/c-4ry-m-0v-13-2-2001-1080p-2-04-gb/%24c4ry%20M0v13%202%C2%A0%282001%29%201080p%202%2C04%20GB.mkv
+#https://dl.dropbox.com/s/phhok3peq3lp76p/SK4R1M0V132.avi
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/bb052ba84c88a55ee40fe7c19d86a6d46a30093d10685b7772ed0a1c98cbd247.jpg" group-title="Película",Scary Movie: Terroríficamente incorrecta (2026)
+https://hugh.cdn.rumble.cloud/video/fwe2/12/s8/2/u/k/K/B/ukKBA.aaa.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/34b2d39ed55f6df09da8871919da835dba6e86d68af01079ab75635836f00200.jpg" group-title="Película",¿Y dónde están las rubias? (2004) 
+https://hugh.cdn.rumble.cloud/video/fww1/0c/s8/2/u/b/K/O/ubKOz.aaa.mp4
+#https://dl.dropboxusercontent.com/s/aez9sb22f2vuyve/SalynPM-Y-D.E.L.R.mp4?dl=0
+#https://content.jwplatform.com/videos/7Eu0eQCZ-sVI2ukY9.mp4
+#https://archive.org/download/rub-14-1080p-3-75-gb/Rub14%24%201080p%203%2C75%20GB.mkv
+#https://cdn.jwplayer.com/manifests/7Eu0eQCZ.m3u8
+
+#EXTINF:-1 tvg-logo="https://play-lh.googleusercontent.com/LxqKKdHe7goj6v1Plh5aYl4qN-CaXmOhtsaaFx-aZLBpjd4Ds6tnpPWFN3073bBUARY" group-title="Película",Chiquito pero peligroso (2006)
+https://content.jwplatform.com/videos/hqFAFp6k-SFZgM3OG.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BYzA1YzBhNTUtNGVhMi00NWJkLTkwOTMtOGM0NTA2YzIyYWZkXkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Película",Un papá genial (1999)
+https://objectstorage.us-phoenix-1.oraclecloud.com/n/axa4wow3dcia/b/bucket-20201001-1658/o/pelisarregladas%2Fparte2%2FBig.Daddy%20LAT.mp4
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTvNLmHF7KI3WPUq3NCk2Njpd7cC7vrcVU5-w&s" group-title="Película",Como si fuera la primera vez (2004)
+https://dn721803.ca.archive.org/0/items/50-10-v-veez-z-2004-1080p-3-52-gb/50%201%E2%81%B0%20vVEezZ%20%282004%29%201080p%203%2C52%20GB.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/1eb7b5479c65b53e9c7884081b2652ac3d27824d211627a418524109695c1202.jpg" group-title="Película",Una esposa de mentira (2011)
+https://hugh.cdn.rumble.cloud/video/fww1/7e/s8/2/s/K/t/u/sKtuy.aaa.mp4
+#https://ia601607.us.archive.org/1/items/u-a-3sp0sa-de-mentir4-hd-720p-1002285/U_a_3sp%E2%81%B0sa_de_mentir%E2%81%B4_HD__720p___1002285.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/7b86f2a7e80941d97c265348873a82c73450c0286ed1d1eeb7d86440ec707de5.jpg" group-title="Película",Son como niños (2011)
+https://dl.dropboxusercontent.com/s/b0rsesyno1h2cvj/son%20como%20ni%C3%B1os.mp4
+#https://ia803106.us.archive.org/20/items/son-como-ninos_202107/Son%20como%20ni%C3%B1os.mp4
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRTNs81Hrsw-Dcx359mRuN-dI871YB5iZRldJvlLSG9dYupJfD55oXJINos&s=10" group-title="Película",Son como niños 2 (2013)
+https://dl.dropboxusercontent.com/s/ewm0dtmuvk9u20x/son%20como%20ni%C3%B1os%202.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BMzg4NDFjNmYtZjQxMy00MDY4LWEyZjUtYzRjNjNkNjJiZTZhXkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Película",Misterio a bordo (2019)
+https://dl.dropboxusercontent.com/s/4ueh6fa7jn23vbh/SalynPM-SMP2w9b.mp4?dl=0
+#https://dl.dropboxusercontent.com/s/vkv9xqoes9e128p/criminales%20en%20el%20mar.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BMWU3OWYwNjAtNWExZS00ODY4LTgwMGQtNzliMzM2MjEyNDBkXkEyXkFqcGc@._V1_.jpg" group-title="Película",Misterio a la vista (2023)
+https://objectstorage.us-ashburn-1.oraclecloud.com/n/idvrlfgimket/b/cubostudio/o/peliculas%2Fpelisabr23%2FVer%20Murder%20Mystery%202%20online%20HD%20-%20Cuevana%202%20Espa%C3%B1ol.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BZTFhYTI2MzMtYmJjOC00YmM5LWI1MGYtYzc1NjE4ZDgxMTk1XkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Película",La otra Missy (2020)
+https://dl.dropbox.com/s/pbiw2p1y0bsnrk1/L%40_0TR4_M155Y_.avi
+
+#EXTINF:-1 tvg-logo="https://static.wikia.nocookie.net/doblaje/images/8/8c/LaMascara.jpg/revision/latest?cb=20200731143600&path-prefix=es" group-title="Película",La Máscara (1994) 
+https://archive.org/download/la-m-4sc-4r-4-hd-1-68-gb/La%20m4sc4r4%20HD%201%2C68%20GB.mkv
+#https://content.jwplatform.com/videos/oo1NGfNH-3rsvtGyk.mp4
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRSHHSXRp5UCnU3utQwjnC9zEneSz0FbXyyFA&s" group-title="Película",Mentiroso mentiroso (1997)
+https://1a-1791.com/video/s8/2/O/q/O/2/OqO2u.caa.mp4?u=0
+#https://archive.org/download/mentiroso-mentiroso/Mentiroso%20Mentiroso/MENTIROSO%20MENTIROSO.mkv
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQgR9ByhxeEWBUHZJtmv2IO0Df5BC9jl54p4w&s" group-title="Película",El Grinch (2000)
+https://ia800503.us.archive.org/18/items/el-gr-1nch-2000-1080p-2-86-gb/El%20Gr1nch%27%24%20%282000%29%201080p%202%2C86%20GB.mp4
+#https://archive.org/download/el-gr-1nch-2000-1080p-2-86-gb/El%20Gr1nch%27%24%20%282000%29%201080p%202%2C86%20GB.mkv
+
+#EXTINF:-1 tvg-logo="https://static.wikia.nocookie.net/yatoroba/images/3/34/Laslocurasdedickyjane2005poster.png/revision/latest?cb=20250118184102&path-prefix=es" group-title="Película",Las locuras de Dick y Jane (2005)
+https://archive.org/download/las-locuras-de-dick-y-jane/Las%20locuras%20de%20Dick%20y%20Jane/Las%20locuras%20de%20Dick%20y%20Jane.avi
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BOWY0YzE1OTYtOTZkZC00YTVhLTkwZjQtYTQwNmExNmUxYTU4XkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Película",¿Qué pasó ayer? 1 (2009)
+https://archive.org/download/07_20260502/upload/06.mkv
+#https://dl.dropboxusercontent.com/s/wmbs73go0wca65e/Qp02pq.mp4?dl=0
+
+#EXTINF:-1 tvg-logo="https://www.americadvd.cl/wp-content/uploads/imagenes_productos/43963.jpg" group-title="Película",¿Qué pasó ayer? 2 (2011)
+https://archive.org/download/07_20260502_202605/upload/07.mkv
+#https://dl.dropboxusercontent.com/s/gukualmxgtomaa8/Qp03pq-1.mp4?dl=0
+
+#EXTINF:-1 tvg-logo="https://static.wikia.nocookie.net/doblaje/images/6/6e/Qu%C3%A9Pas%C3%B3Ayer3.jpg/revision/latest?cb=20210124011925&path-prefix=es" group-title="Película",¿Qué pasó ayer? 3 (2013)
+https://archive.org/download/07_20260502_202605/upload/08.mkv
+#https://dl.dropboxusercontent.com/s/n1wqewoa2qnhl9f/Qp04pq-1.mp4?dl=0
+
+#EXTINF:-1 tvg-logo="https://mx.web.img3.acsta.net/r_1280_720/pictures/14/07/25/23/48/503185.jpg" group-title="Película",La Familia de mi Novia (2000) 
+https://ia801405.us.archive.org/35/items/1267658901/1.mp4
+
+#EXTINF:-1 tvg-logo="https://www.diariovivo.com/wp-content/uploads/2025/05/3bd644afbab7e709595c72f639dfdd691135d5e25cb01fc5f6f216a67974bd3c._UR19201080_.jpg" group-title="Película",La Familia de mi Esposo (2004)
+https://ia801405.us.archive.org/35/items/1267658901/2.mp4
+
+#EXTINF:-1 tvg-logo="https://jorgelcastanos.blog/wp-content/uploads/2011/05/little_fockers_movie.jpg" group-title="Película",Los pequeños Focker (2010)
+https://ia801405.us.archive.org/35/items/1267658901/3.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BNGU0MTVkY2UtOTRlOC00NTc3LThmZGMtZWVlMDA0OTgyYzg2XkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Película",Una Noche en el Museo (2006)
+https://archive.org/download/mu-30-1-720p-lat-1-01-gb/Mu%2430%201%20720p%20LAT%201%2C01%20GB.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BY2E0NTRjMDEtMWI3NS00YTRmLTg4NmEtNzIxZjQ3YWM2NDQxXkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Película",Una Noche en el Museo 2: La batalla del Smithsonian (2009)
+https://ia800503.us.archive.org/33/items/mu-30-2-hd-lat-999-65-mb/Mu%2430%202%20HD%20LAT%20999%2C65%20MB.mp4
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT1pC3VLXgtaZTJsWDu_XpJ18qO0-ohmQgVyA&s" group-title="Película",Una Noche en el Museo 3: El secreto de la tumba (2014)
+https://ia600503.us.archive.org/2/items/mu-30-3-720p-dual-1-46-gb/Mu%2430%203%20720p%20DUAL%201%2C46%20GB.mp4
+
+#EXTINF:-1 tvg-logo="https://static.wikia.nocookie.net/doblaje/images/9/9c/Uns_pareja_ex_1.png/revision/latest?cb=20200212075146&path-prefix=es" group-title="Película",Una Pareja Explosiva (1998)
+https://archive.org/download/3xpl-0c-1v-4-2-2001-hd-2-96-gb/3xpl0c1v4%201%20%281998%29%20720p%20DUAL%20977%2C48%20MB.mkv
+
+#EXTINF:-1 tvg-logo="https://i.pinimg.com/736x/da/b6/04/dab604051e7189c133478ec4f5fc80a3.jpg" group-title="Película",Una Pareja Explosiva 2 (2001)
+https://archive.org/download/3xpl-0c-1v-4-2-2001-hd-2-96-gb/3xpl0c1v4%202%20%282001%29%20HD%202%2C96%20GB.mkv
+
+#EXTINF:-1 tvg-logo="https://static.wikia.nocookie.net/doblaje/images/f/fd/UnaParejaExplosiva3.png/revision/latest?cb=20141009062012&path-prefix=es" group-title="Película",Una Pareja Explosiva 3 (2007)
+https://archive.org/download/3xpl-0c-1v-4-2-2001-hd-2-96-gb/3xpl0c1v4%203%20%282007%29%20HD%202%2C82%20GB.mkv
+
+#EXTINF:-1 tvg-logo="https://www.hugozapata.com.ar/wp-content/uploads/2020/05/space-jam.jpg" group-title="Película",Space Jam (1996) 
+https://hugh.cdn.rumble.cloud/video/fww1/c9/s8/2/U/I/u/v/UIuvz.aaa.mp4
+#https://dn710205.ca.archive.org/0/items/sspaci-4le-j-4mb-0-1996-720p-1-81-gb/Sspaci4le%20J4m%27b0%20%281996%29%20720p%201%2C81%20GB.mp4
+
+#EXTINF:-1 tvg-logo="https://i0.wp.com/www.sol915.com.ar/wp-content/uploads/2021/04/space-jam-e1617488371722.jpg?fit=2416%2C2416&ssl=1" group-title="Película",Space Jam 2 (2021) 
+https://1a-1791.com/video/fwe2/e2/s8/2/4/M/u/v/4Muvz.aaa.mp4
+#https://objectstorage.us-phoenix-1.oraclecloud.com/n/axa4wow3dcia/b/bucket-20201001-1658/o/pelis%2Fpelisjul%2FSpace%20Jam%20A%20New%20Legacy%20(2021)%20LAT.mp4
+
+#EXTINF:-1 tvg-logo="https://cuadernoderetazos.wordpress.com/wp-content/uploads/2013/11/matilda.jpg" group-title="Película",Matilda (1996) 
+https://archive.org/download/m-4t-1lda/M4t1lda.mkv
+#https://cdn.jwplayer.com/manifests/tVuH5d4I.m3u8
+#https://content.jwplatform.com/videos/tVuH5d4I-H6HLvZxB.mp4
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQLrX1IO2zmUqfV5bbUTuq4_8Bg_1c1STvKsQ&s" group-title="Película",Rango (2011)
+https://content.jwplatform.com/videos/CaszktLq-9GO24Csk.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BMDViYTU5MDMtNjBjZC00OGIxLWI2MTItYzk5ZDgzYmY5YTQ3XkEyXkFqcGc@._V1_.jpg" group-title="Película",Angry Birds: La película (2016)
+https://dl.dropboxusercontent.com/s/794f7b57ukdxl1b/SalynPM-Angry.birds.mp4?dl=0
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BMzg1MmRiNWItN2Y4MC00ZTVlLWJiOGUtZjYxM2ZkN2NmYjllXkEyXkFqcGc@._V1_.jpg" group-title="Película",Angry Birds 2: La película (2019)
+https://dl.dropboxusercontent.com/s/4uau4m652wtuaei/SalynPM-SPM1a3h.mp4?dl=0
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT2_34OOMEyEXFRyyAuL5x4T1__y6q1cKU00yaq3Jw8je4CFQMdQGWlnsA&s=10" group-title="Película",Super Mario Bros La película (2023)
+https://od.lk/s/NV8xODUzNTIxNDZf/Super%20Mario%20Bros.%20La%20pel%C3%ADcula%20online%202023%20HD.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BNTRkODc0MmItYzQ2NS00MGU3LTkwMTUtMGRmZjMwODNiNmI0XkEyXkFqcGc@._V1_.jpg" group-title="Película",Super Mario Galaxy La película (2026)
+https://1a-1791.com/video/fww1/2c/s8/2/8/J/Z/e/8JZeA.aaa.mp4
+
+#EXTINF:-1 tvg-logo="https://static.wikia.nocookie.net/doblaje/images/6/69/Shrekban.png/revision/latest?cb=20200731225428&path-prefix=es" group-title="Película",Shrek (2001)
+https://69t.btv.mx/69T/32T/ENG-MOVIE/PEL/Peliculasa2022/P3L1CUL4S/Shrek%20%282001%29.mp4
+#https://ia801400.us.archive.org/5/items/shrek-tercero-2007/Shrek%20%282001%29.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BZTdkZmJkNDAtYTAzZS00NDc4LTkzOGMtMDNmMTUzZWRhYjk3XkEyXkFqcGc@._V1_.jpg" group-title="Película",Shrek 2 (2004)
+https://dl.dropboxusercontent.com/s/ityoodit9ly3mgg/SalynPM-S.2.mp4?dl=0
+#https://69t.btv.mx/69T/32T/ENG-MOVIE/PEL/Peliculasa2022/P3L1CUL4S/Shrek%202%20%282004%29.mp4
+#https://ia801400.us.archive.org/5/items/shrek-tercero-2007/Shrek%202%20%282004%29.mp4
+
+#EXTINF:-1 tvg-logo="https://es.web.img3.acsta.net/medias/nmedia/18/68/23/20/20054548.jpg" group-title="Película",Shrek Tercero (2007)
+https://69t.btv.mx/69T/32T/ENG-MOVIE/PEL/Peliculasa2022/P3L1CUL4S/Shrek%20the%20Third%20%282007%29.mp4
+#https://dl.dropboxusercontent.com/s/lyxljnsfkg6cjr7/SalynPM-S.3.mp4?dl=0
+#https://ia801400.us.archive.org/5/items/shrek-tercero-2007/Shrek%20Tercero%20%282007%29.mp4
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTDO6miNoFMIvEHE74mUH_5reRjYRJBXHkBFNzxUafGkng71opE4x8bnVE&s=10" group-title="Película",Shrek felices para siempre (2010)
+https://ia601400.us.archive.org/5/items/shrek-tercero-2007/Shrek%2C%20felices%20para%20siempre%20%282010%29.mp4
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcS5czDcBmevDw_LJg3E_kgTI7wu6t-X4JGxXg&s" group-title="Película",Kung Fu Panda (2008)
+https://ia601503.us.archive.org/3/items/videoplayback10_20200326/sub1d0_p4r4_5tr34ming_P5F11X/videoplayback001.mp4
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTjHph_8MZCJBbOYCv7qvvk_E989UXVZpwfqg&s" group-title="Película",Kung Fu Panda 2 (2011)
+https://ia601503.us.archive.org/3/items/videoplayback10_20200326/sub1d0_p4r4_5tr34ming_P5F11X/videoplayback4.mp4
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR5bpslbDshh-OhA7jLg0IHybXxE75b0KBn-A&s" group-title="Película",Kung Fu Panda 3 (2016)
+https://ia601503.us.archive.org/3/items/videoplayback10_20200326/sub1d0_p4r4_5tr34ming_P5F11X/videoplayback10.mp4
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcS7goxfOjtm5NdCwiOL97ZNBaTgBdRlG9ajbw&s" group-title="Película",Kung Fu Panda 4 (2024)
+https://dl.dropbox.com/scl/fi/8fm8d0ktuvq0l8icgirlh/kung4.mkv?rlkey=p6lk2tbw00i9du7men82bb0ui
+
+#EXTINF:-1 tvg-logo="https://i.redd.it/kdjg06vte59b1.jpg" group-title="Película",Los Increíbles (2004)
+https://archive.org/download/videoplayback10_202003/sub1d0_p4r4_5tr34ming_P5F11X/videoplayback10.mp4
+
+#EXTINF:-1 tvg-logo="https://media.diariouno.com.ar/p/56cf88da4d2c227a1848dbc908a634f8/adjuntos/298/imagenes/001/390/0001390421/0019171555jpg.jpg" group-title="Película",Los Increíbles 2 (2018)
+https://archive.org/download/videoplayback21_20200319/sub1d0_p4r4_5tr34ming_P5F11X/videoplayback21.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BNmI1ZTc5MWMtMDYyOS00ZDc2LTkzOTAtNjQ4NWIxNjYyNDgzXkEyXkFqcGc@._V1_.jpg" group-title="Película",Up (2009)
+https://dn720004.ca.archive.org/0/items/Up.2009.720p.BluRay.x264.YIFY/Up.2009.720p.BluRay.x264.YIFY.mp4
+
+#EXTINF:-1 tvg-logo="https://i0.wp.com/www.sol915.com.ar/wp-content/uploads/2024/06/intensamente-2-cine-america-flyer-santa-fe-agenda-cultural-disney-pixar2.jpg?resize=696%2C940&ssl=1" roup-title="Película",Intensamente 2 (2024)
+https://github.com/ValentinoProM123/MDMP4/releases/download/mp32/INMT2.mp4
+#https://archive.org/download/457626384-3837006406554626-8111903668788379276-n/IntensaMente.2.2024.720p-Dual-Lat.mkv
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BN2FhODA4M2UtNmU5ZC00YjQwLTliNDQtZDVmMGYxMTk4NTczXkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Película",Elio (2025)
+https://archive.org/download/04_20250819/text-editors/02.mp4
+
+##EXTINF:-1 tvg-logo="https://mx.web.img3.acsta.net/c_300_300/pictures/18/11/21/00/23/0050056.jpg" group-title="Película",Un viernes de locos (2003)
+#https://pomf2.lain.la/f/gabb4xt6.mp4?download=1
+
+#EXTINF:-1 tvg-logo="https://micartelera.com.ar/images/peliculas/poster/otroviernesdeloco-poster.jpg" group-title="Película",Otro viernes de locos (2025)
+http://45.226.28.9:8085/cloud_2/Otro.viernes.de.locos.2025.720.lat.mp4
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTmAAhLHPJ289z1onNDJPVBF8MkGYNRu0-lGw&s" group-title="Película",Toy Story (1995)
+https://github.com/ValentinoProM123/MDMP4/releases/download/mp32/TSY1.mp4
+#https://dl.dropboxusercontent.com/s/sqlabqu4wmlj8rh/SalynPM-T.S.1.mp4?dl=0
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRipUtMUSSvuomVOP8fvZEDHrO1R7gdMHTp6A&s" group-title="Película",Toy Story 2 (1999)
+https://github.com/ValentinoProM123/MDMP4/releases/download/mp32/TSY2.mp4
+#https://dl.dropboxusercontent.com/s/r9f1djbxpjjb1sv/SalynPM-T.S.2.mp4?dl=0
+
+#EXTINF:-1 tvg-logo="https://static.wikia.nocookie.net/doblaje/images/7/74/Toy_Story_3_portada.jpg/revision/latest?cb=20230618165417&path-prefix=es" group-title="Película",Toy Story 3 (2010)
+https://github.com/ValentinoProM123/MDMP4/releases/download/mp32/TSY3.mp4
+#https://dl.dropboxusercontent.com/s/9pxbjvzsql60s2n/SalynPM-T.S.3.mp4?dl=0
+
+#EXTINF:-1 tvg-logo="https://moviepostermexico.com/cdn/shop/products/1553788375115586850_1500x.png?v=1596552490" group-title="Película",Toy Story 4 (2019)
+https://github.com/ValentinoProM123/MDMP4/releases/download/mp32/TSY4.mkv
+#https://archive.org/download/captura-de-pantalla-2023-12-01-155804/%5Bwww.mega1080.com%5DT0YST0RY444HD1080P%20%281%29.mkv
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BOTNiNWExOTQtZTU1Ny00N2MyLWI4YzMtMWJjMTI1ZWRmNmQ4XkEyXkFqcGc@._V1_.jpg" group-title="Película",Toy Story 5 (2026)
+http://45.226.28.9:8085/cloud_1/Toy.Story.5.2026.720.lat.mp4
+#https://hugh.cdn.rumble.cloud/video/fwe2/39/s8/2/O/a/P/C/OaPCA.aaa.mp4
+
+#EXTINF:-1 tvg-logo="https://i.pinimg.com/736x/5a/37/e9/5a37e92fc9003be1f02709adc88fff46.jpg" group-title="Película",Mulan (1998)
+https://archive.org/download/l-2_20250817/M%20%281%29.mp4
+
+#EXTINF:-1 tvg-logo="https://is1-ssl.mzstatic.com/image/thumb/Music128/v4/c4/06/6d/c4066da2-42f7-749e-61cf-ca55e302a59e/00050086125777.rgb.jpg/900x900bb.jpg" group-title="Película",Mulan II (2004)
+https://archive.org/download/l-2_20250817/M%20%282%29.mp4
+
+#EXTINF:-1 tvg-logo="https://static.wikia.nocookie.net/doblaje/images/c/c1/Mulan-2020-Poster.jpg/revision/latest/thumbnail/width/360/height/360?cb=20201105182002&path-prefix=es" group-title="Película",Mulan (2020)
+https://archive.org/download/videoplayback18_202011/sub1d0_p4r4_5tr34ming_P5F11X/videoplayback1.mkv
+
+#EXTINF:-1 tvg-logo="https://static.wikia.nocookie.net/doblaje/images/c/c9/ElReyLeon2019.jpg/revision/latest?cb=20200727234136&path-prefix=es" group-title="Película",El Rey León (2019)
+https://archive.org/download/sdalogo0400x400/130n%20%20r3y.mp4
+
+#EXTINF:-1 tvg-logo="https://image.tmdb.org/t/p/original/yrZqrGVbmoYZJdncnx60JUhzsGm.jpg" group-title="Película",Lilo y Stitch (2025)
+http://45.226.28.9:8085/cloud_2/Lilo.y.Stitch.2025.720.lat.mp4
+#https://archive.org/download/nuevaplanilladekamila/Lilo.y.Stitch.2025.1080p-Dual-Lat.mkv
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQeYhY-ymcVNuSTK2Y9hB2BbQKK5G4RYGgBVA&s" group-title="Película",Maléfica (2014)
+https://archive.org/download/04_20260404/up/05.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/c6629d6eff962dc54ff3ef9332253cc926e42fd1e999e258dd238de925f73195.jpg" group-title="Película",Maléfica 2 (2019)
+https://archive.org/download/04_20260404/up/06.mp4
+
+#EXTINF:-1 tvg-logo="https://www.ecartelera.com/carteles/1700/1762/001_m.jpg" group-title="Película",Avatar (2009) 
+https://archive.org/download/4v-4t-4r-720p-dual-2.67-gb/4v4t4r%20720p%20DUAL%202.67%20GB.mkv
+#https://content.jwplatform.com/videos/jpaugSDb-j90WX2ie.mp4
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQDY9cZhs9rtorYQVr6F6gT1kOsAZuLw4-n-Q&s" group-title="Película",Avatar 2 (2022)
+https://archive.org/download/4v-4t-4r-720p-dual-2.67-gb/4v4t4r%20-%202%20720p%20DUAL%201%2C94%20GB.mkv
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQQ-y3EW8VTJ6LCzmLUqIrvzGTc0kOqQzH7kw&s" group-title="Película",Avatar 3 (2025)
+https://hugh.cdn.rumble.cloud/video/fww1/63/s8/2/C/j/4/a/Cj4aA.aaa.mp4
+#https://archive.org/download/08_20260419_202604/Debianators/08.mkv
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BYTkyYjVkNDItODc1Ny00NzA1LTkwY2YtZDUwNTlhMDk3MTZiXkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Película",Harry Potter y la piedra filosofal (2001)
+https://dl.dropboxusercontent.com/s/gligbt29tryxc3b/SalynPM-H.P.1.mp4?dl=0
+#https://archive.org/download/h-4rr-1y-p-0tt-3r-4-1080p-dual-4.71-gb/H4rr1y%20p0tt3r%201%201080p%20EXTENDED%20DUAL%203.45%20GB.mkv
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTvPLKQ8vWy4RP44oNEL53DUX56hjpVRxwwnQ&s" group-title="Película",Harry Potter y la cámara secreta (2002)
+https://dl.dropboxusercontent.com/s/7bso86opwjowozw/SalynPM-H.P.2.mp4?dl=0
+#https://archive.org/download/h-4rr-1y-p-0tt-3r-4-1080p-dual-4.71-gb/H4rr1y%20p0tt3r%202%201080p%20DUAL%203%2C86%20GB.mkv
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BNjY1YTI1MGItOTEzYy00ZmQ4LTk3ZjctZDllM2E4ZTBhZWI2XkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Película",Harry Potter y el prisionero de Azkaban (2004)
+https://dl.dropboxusercontent.com/s/sa9axa49hdipy1o/SalynPM-H.P.3.mp4?dl=0
+#https://archive.org/download/h-4rr-1y-p-0tt-3r-4-1080p-dual-4.71-gb/H4rr1y%20p0tt3r%203%201080p%20DUAL%204.55%20GB.mkv
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BMWJjZDUwNzMtNzcyMC00NWQ0LTgzMTgtMzJhODBiMGM1MmRkXkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Película",Harry Potter y el cáliz de fuego (2005)
+https://dl.dropboxusercontent.com/s/zdrj1rkae89e3ut/SalynPM-H.P.4.mp4?dl=0
+#https://archive.org/download/h-4rr-1y-p-0tt-3r-4-1080p-dual-4.71-gb/H4rr1y%20p0tt3r%204%201080p%20DUAL%204.71%20GB.mkv
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSGTKkRXfYJ8m26p7Tk0PklJW3Jj2ONnIk2Ng&s" group-title="Película",Harry Potter y la Orden del Fénix (2007) 
+http://archive.org/download/ezra_2_201904/subid0_p4r4_stre4m1ng_a85/5.mp4
+#https://sandroflix.sandrostoreps3.workers.dev/content/filmes/Harry.Potter/5.Harry.Potter.e.a.Ordem.da.Fenix.-.BY.SANDRO.STORE.mp4
+#https://archive.org/download/h-4rr-1y-p-0tt-3r-6-1080p-dual-4.6-gb/H4rr1y%20p0tt3r%205%201080p%20DUAL%204.43%20GB.mkv
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTeaxQ3pYHz6AhnN-Ff1gaXlliJdp0HU4eO_IdbyUgqwIwQE03Px55f2L7q&s=10" group-title="Película",Harry Potter y el misterio del príncipe (2009)
+https://dl.dropboxusercontent.com/s/qgfrlpyp1yzqmiy/SalynPM-H.P.6.mp4?dl=0
+#https://archive.org/download/h-4rr-1y-p-0tt-3r-6-1080p-dual-4.6-gb/H4rr1y%20p0tt3r%206%201080p%20DUAL%204.6%20GB.mkv
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BMTQ2OTE1Mjk0N15BMl5BanBnXkFtZTcwODE3MDAwNA@@._V1_.jpg" group-title="Película",Harry Potter y las reliquias de la muerte 7: Parte 1 (2010)
+https://dl.dropboxusercontent.com/s/qn44ohdtwfwy1h3/SalynPM-H.P.7.mp4?dl=0
+#https://archive.org/download/h-4rr-1y-p-0tt-3r-p-4rt-3-1-1080p-dual-4.69-gb/H4rr1y%20p0tt3r%20P4rt3%201%201080p%20DUAL%204.69%20GB.mkv
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BNDgxOTEyYzktOTg1NC00OWZmLWEzOTAtZTRhZGRkZTQzYWE5XkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Película",Harry Potter y las reliquias de la muerte 7: Parte 2 (2011)
+https://dl.dropboxusercontent.com/s/1n54lazx90lfv72/SalynPM-H.P.8.mp4?dl=0
+#https://archive.org/download/h-4rr-1y-p-0tt-3r-p-4rt-3-1-1080p-dual-4.69-gb/H4rr1y%20p0tt3r%20P4rt3%202%201080p%20DUAL%204.18%20GB.mkv
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BZTNhNjg1NWItZThkNC00N2JiLTkzOTgtNzZjYzAyYTQ4OTEwXkEyXkFqcGc@._V1_.jpg" group-title="Película",Harry Potter 20 Aniversario
+https://dl.dropboxusercontent.com/s/1n54lazx90lfv72/SalynPM-H.P.8.mp4?dl=0
+#https://archive.org/download/h-4rr-1y-p-0tt-3r-p-4rt-3-1-1080p-dual-4.69-gb/H4rr1y%20p0tt3r%2020th%27s%201080p%20DUAL%202.24%20GB.mkv
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/4dca2e61aaec6555d48b77a1796032f609ba821466758530262cd53ba13752bb._SX1080_FMjpg_.jpg" group-title="Película",Animales fantásticos y dónde encontrarlos (2016) 
+https://content.jwplatform.com/videos/nTLa65rp-ZLlOiAMk.mp4
+
+##EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/a30ca549f049952d95495295765c8c67ae655aadd49b3ae391893da0e429a550.jpg" group-title="Película",Animales fantásticos: Los crímenes de Grindelwald (2018)
+#https://archive.org/download/08_20260419_202604/Debianators/04.mkv
+
+##EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/e69027ee96e0fcfe5953cdc9365a0542aeaef5a9271c6af09e9b8757fb56704e.jpg" group-title="Película",Animales fantásticos: Los secretos de Dumbledore (2022)
+#https://archive.org/download/08_20260419_202604/Debianators/05.mp4
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSuigv0sBbbkadQuNSq9WQymmZLL5HzPxFURw&s" group-title="Película",Piratas del caribe: La maldición de la perla negra (2003)
+https://archive.org/download/04_20260501/upload/03.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BMTcwODc1MTMxM15BMl5BanBnXkFtZTYwMDg1NzY3._V1_FMjpg_UX1000_.jpg" group-title="Película",Piratas del caribe: El cofre de la muerte (2006)
+https://archive.org/download/04_20260501/upload/04.mp4
+#https://dl.dropbox.com/s/doxveva3t27as0i/Pirates.of.the.caribbean.dead.mans.chest.2006.1080p-dual-lat.mp4
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRMQ9U-ooeIUPlOli2h_A9DPyYeY9TqYFNMng&s" group-title="Película",Piratas del caribe: En el fin del mundo (2007)
+https://archive.org/download/04_20260501/upload/05.mp4
+#https://dl.dropbox.com/s/vzv0dsmu8uoynui/Pirates.of.the.caribbean.at.worlds.end.2007.1080p-dual-lat.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BM2U0ZTYwZTctMTU2MC00M2Y5LTgwYmYtNjNkNWQyYzczOTUxXkEyXkFqcGc@._V1_.jpg" group-title="Película",Piratas del caribe: Navegando aguas misteriosas (2011)
+https://archive.org/download/04_20260501/upload/06.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BZmE4ZjMxMDUtYjE4MC00MTVhLWExYTctMmI0YTk4ZDIxZDNkXkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Película",Piratas del caribe: La venganza de Salazar (2017)
+https://archive.org/download/04_20260501/upload/07.mp4
+
+#EXTINF:-1 tvg-logo="https://image.tmdb.org/t/p/original/rFi0qLi5q9oB6znNaGysAQRjSLQ.jpg" group-title="Película",Mi Pobre Angelito (1990) 
+https://archive.org/download/03_20251117/gedit/02.mp4
+
+#EXTINF:-1 tvg-logo="https://xl.movieposterdb.com/06_02/1992/0104431/xl_93718_0104431_cb20523c.jpg" group-title="Película",Mi Pobre Angelito 2 (1992) 
+https://hugh.cdn.rumble.cloud/video/s8/2/S/P/_/f/SP_fo.aaa.mp4
+#https://archive.org/download/03_20251117/gedit/03.mp4
+
+#EXTINF:-1 tvg-logo="https://play-lh.googleusercontent.com/wdPCAQuA7l764uwIvRj3hBWvyYymUseg0WnW8VILx34JHpxT9BMoLP1HwxsAFqR0FwwpUQ" group-title="Película",Ricky Ricón (1994)
+https://ia601609.us.archive.org/22/items/r-1cky-r-1co-0n/R1cky%20R1co0n.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BZmNiNzM4MTctODI5YS00MzczLWE2MzktNzY4YmNjYjA5YmY1XkEyXkFqcGc@._V1_.jpg" group-title="Película",El Padrino (1972) 
+https://archive.org/download/031_20200504_202005/031.mkv
+#https://dl.dropbox.com/s/bnpgfv9yzowzv5y/ppppp.avi
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQlYKalN3xCPa_rGJHzKW-ogaUJwn28DZe63W6zCZ4-mg&s=10" group-title="Película",El Padrino 2 (1975)
+https://archive.org/download/032_20200504/032.mkv
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BMDM0YTE5YWMtOGYxYS00MTI1LWE0ZWMtYWY1NWQwMmY0MTQ3XkEyXkFqcGc@._V1_.jpg" group-title="Película",El Padrino 3 (1990)
+https://archive.org/download/033_20200504/033.mkv
+
+#EXTINF:-1 tvg-logo="https://image.tmdb.org/t/p/original/aD0smIJ3MW3lUgayXvltjkIzZpT.jpg" group-title="Película",El Resplandor (1980)
+https://ia601605.us.archive.org/23/items/resplandor_202302/RESPLANDOR.mp4
+
+#EXTINF:-1 tvg-logo="https://http2.mlstatic.com/D_NQ_NP_834120-MLA53101516422_122022-O.webp" group-title="Película",Volver al Futuro (1985)
+https://ia903101.us.archive.org/0/items/volveralfuturo/Volver%20al%20Futuro.mp4
+#https://dl.dropboxusercontent.com/s/uhbpgxswzg2guga/SalynPM-VALF1.mp4?dl=0
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRpmR94RDwqfln__Wp7sqTcMRjItBYNF1ONuw&s" group-title="Película",Volver al Futuro 2 (1989)
+https://ia803101.us.archive.org/0/items/volveralfuturo/Volver%20al%20Futuro%20II.mp4
+
+#EXTINF:-1 tvg-logo="https://static.wikia.nocookie.net/doblaje/images/9/9a/Volver_al_Futuro_III_Poster.jpg/revision/latest/thumbnail/width/360/height/360?cb=20201122065552&path-prefix=es" group-title="Película",Volver al Futuro 3 (1990)
+https://ia803101.us.archive.org/0/items/volveralfuturo/Volver%20al%20Futuro%20III.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BNjQ3ZWY0NjktNWRiNy00NTgxLTg5NmYtMzI5ZDExODVjZjEwXkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Película",E.T. El extraterrestre (1980)
+https://dl.dropboxusercontent.com/scl/fi/8zll62wo8acugtmryed0c/E1T-3REL-13EXTR1AT43ERRES1TRE.mp4?rlkey=qoq06qx559g6t44uw2gjnvqes&st=8wf7wfvu
+#https://archive.org/download/elex_20210814_202108/elex.mkv
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSCW4b7_VVw1TgCuhJnUGJU9eeQVF5cq3yESQ&s" group-title="Película",Joven manos de tijera (1990)
+https://archive.org/download/m-4n-0st-1j-3r-4-1990-1080p-4-31-gb/M4n0st1j3r4%24%20%281990%29%201080p%204%2C31%20GB.mkv
+#https://archive.org/download/eljmdt/MA%C3%91ANA/EL%20J%20M%20D%20T.ia.mp4
+
+#EXTINF:-1 tvg-logo="https://www.repstatic.it/content/nazionale/img/2025/05/28/185001563-88593de0-f0db-4c9a-be6a-81e137417cc1.jpg" group-title="Película",Mujer bonita (1990)
+https://dn710009.ca.archive.org/0/items/h-4rr-1y-p-0tt-3r-6-1080p-dual-4.6-gb/M0uj3r%20B0n1t4a%201080p%20LAT%203.47%20GB.mp4
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRqONXiyYv-h1V0uQ8HAKFsL0kAvLfaJlmqsQ&s" group-title="Película",Titanic (1997) 
+https://cdn.jwplayer.com/manifests/HUQB3sIe.m3u8
+#https://archive.org/download/001_20200216/001.mkv
+#https://dl.dropbox.com/scl/fi/osyw6fgbiiwzjkx0bv9oy/Titanic.mp4?rlkey=b07hibjgt20txijg0citjdshs&dl=0
+#https://archive.org/download/9edb-3e-054d-318eba-192c-07a-809315e-72/Titanic.1997.lati.mp4
+
+#EXTINF:-1 tvg-logo="https://i.ibb.co/cCmwP2W/4262y.jpg" group-title="Película",El Jinete sin Cabeza (1999)
+https://dn721802.ca.archive.org/0/items/el-j-1net-3e-sin-ca-4b-3z-za-1080p-lat-2-88-gb/El%20J1net3e%20sin%20Ca4b3zZa%201080p%20LAT%202%2C88%20GB.mp4
+
+#EXTINF:-1 tvg-logo="https://image.tmdb.org/t/p/original/p08mUnCktZ2opGihZTAn7OqzOoi.jpg" group-title="Película",Gladiador (2000)
+https://1a-1791.com/video/fwe1/7d/s8/2/q/v/x/J/qvxJx.aaa.mp4
+#https://archive.org/download/09_20260503_202605/Linux/01.mp4
+#https://archive.org/download/026_20200428/026.mkv
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQzDA877ACnOfbuXaK-AH7e18Jt-0imKH0P_Q&s" group-title="Película",Gladiador 2 (2024) 
+http://45.226.28.9:8085/cloud_1/Gladiador.2.2024.720.lat.mp4
+#https://archive.org/download/5432_20241222/sabayon/674534.mp4
+#https://archive.org/download/09_20260503_202605/Linux/02.mp4
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSeIbAarq8HyQetJzwsu_QXfQyXA0oeBNFM8A&s" group-title="Película",Troya (2004)
+https://content.jwplatform.com/videos/RuDUr9p2-cXeGjWD9.mp4
+#https://cdn.jwplayer.com/manifests/RuDUr9p2.m3u8
+
+#EXTINF:-1 tvg-logo="https://www.aciprensa.com/imagespp/la-pasion-de-cristo.jpg?w=720&h=480" group-title="Película",La pasión de Cristo (2004)
+https://1a-1791.com/video/fww1/22/s8/2/h/a/4/C/ha4Cy.aaa.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BMzJiMjgzYzItMzI3NC00NjQ0LTkyZTMtZTNmNWMyZDIxNjU2XkEyXkFqcGc@._V1_.jpg" group-title="Película",Yo robot (2004)
+https://hugh.cdn.rumble.cloud/video/fw/s8/2/P/E/P/N/PEPNt.aaa.mp4
+
+#EXTINF:-1 tvg-logo="https://image.tmdb.org/t/p/original/wPKOqIZXC0j1POOqNTf81AQQqtz.jpg" group-title="Película",Sr. Y Sra. Smith (2005)
+https://cdn.jwplayer.com/manifests/CH9QRKbd.m3u8
+
+#EXTINF:-1 tvg-logo="https://es.web.img3.acsta.net/medias/nmedia/18/67/41/66/20065424.jpg" group-title="Película",Virgen a los 40 (2005)
+https://archive.org/download/raton_202004/raton/raton.mp4
+
+#EXTINF:-1 tvg-logo="https://static.wikia.nocookie.net/doblaje/images/6/6e/Charlie_y_la_f%C3%A1brica_de_chocolate.jpg/revision/latest/thumbnail/width/360/height/360?cb=20200730012939&path-prefix=es" group-title="Película",Charlie y la fábrica de chocolate (2005)
+https://ia601608.us.archive.org/35/items/charls-la-f-bric-chocola-hd-1080p-786361/Charl%27s_la_F_bricChocolaHD__1080p___786361.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BOGQ2NTgzMjQtMTkwYy00NWIyLWIyMWItZDAxMTdjYjIyNzgwXkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Película",En busca de la felicidad (2006) 
+https://dl.dropboxusercontent.com/s/f4d8mrjhz8e4igy/E.B.D.L.F-SalynPM.mp4?dl=0
+#https://archive.org/download/buscfel/Crisis/buscfel.mp4
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ8qzx9QrN9YB81N4MhAXU6U6r93R00UD7-A1FwxRi4bg&s=10" group-title="Película",El diablo viste a la moda (2006) 
+https://1a-1791.com/video/fww1/e5/s8/2/I/q/G/3/IqG3z.aaa.mp4
+#https://ia601801.us.archive.org/34/items/el-diablo-viste-a-la-moda-1080p-id-350_202012/El%20diablo%20viste%20a%20la%20moda%201080p%20id_350.ia.mp4
+#https://archive.org/download/3_20201017_20201017_1926/Today/1.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BYzM2ZGVlMDUtNGJlYi00N2E0LTk4NjAtNzgyN2UxZDM2ODU3XkEyXkFqcGc@._V1_QL75_UY281_CR18,0,190,281_.jpg" group-title="Película",El diablo viste a la moda 2 (2026)
+http://45.226.28.9:8085/cloud_2/El.diablo.viste.a.la.moda.2.2026.720.lat.mp4
+#http://23.153.217.158:8080/movie/wspdprzjjh/bdkizmamhb/281939.mp4
+
+#EXTINF:-1 tvg-logo="https://images.justwatch.com/poster/179849102/s166/django-unchained" group-title="Película",Django desencadenado (2012) 
+https://archive.org/download/02_20260502_20260502/upload/02.mp4
+#https://archive.org/download/maiz23/maiz/maiz%2023.mkv
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BMTc3NDMwODY4Nl5BMl5BanBnXkFtZTgwNTAyNTMwNzE@._V1_.jpg" group-title="Película",Guerra de Papás (2015)
+https://archive.org/download/la-pas-1i-0on-d-3-cr-1i-5to-2004-1080p-4-33-gb/CkOP4pas%201%20%282015%29%201080p%203%2C54%20GB.mkv
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRMMf33SPpofP7ea0E0qA2S3rc8LPB1isbFhg&s" group-title="Película",Guerra de Papás 2 (2017)
+https://archive.org/download/la-pas-1i-0on-d-3-cr-1i-5to-2004-1080p-4-33-gb/CkOP4pas%202%20%282017%29%201080p%203%2C68%20GB.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BNWVlMzU0OTktYzgxNC00NmYxLWI4OTItOGMxZDhmNzM0ZGYyXkEyXkFqcGc@._V1_.jpg" group-title="Película",El club de las madres rebeldes (2016)
+https://ia601200.us.archive.org/29/items/h-4rr-1y-p-0tt-3r-p-4rt-3-1-1080p-dual-4.69-gb/M4%27adr3s%20r3Eeb3ld3s%202016%20HD%201%2C55%20GB.mp4
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTD-qGSJfx8IHV7ekhV3a5iLBBFcDscYfVzlA&s" group-title="Película",La Navidad de las madres rebeldes (2017)
+https://ia601200.us.archive.org/29/items/h-4rr-1y-p-0tt-3r-p-4rt-3-1-1080p-dual-4.69-gb/M4%27adr3s%20r3Eeb3ld3s%202%20HD%201%2C68%20GB.mp4
+
+#EXTINF:-1 tvg-logo="https://static.wikia.nocookie.net/doblaje/images/f/fb/Un_esp%C3%ADa_y_medio.jpg/revision/latest?cb=20160609151255&path-prefix=es" group-title="Película",Un Espía y Medio (2016)
+https://archive.org/download/3xpl-0c-1v-4-2-2001-hd-2-96-gb/3%24pi4%20%C2%BD%20%282016%29%20720p%201%2C61%20GB.mkv
+
+#EXTINF:-1 tvg-logo="https://play-lh.googleusercontent.com/1meaB05ywZAPwtgqQYZZuc1v76U09U2VEnXCCi4nXIiabhFUDdxrdwxmF3CyzG-JxYBKmg" group-title="Película",Johnny English: De nuevo en acción (2018)
+http://archive.org/download/0231564654SRREGIO/0231564654SRREGIO.mkv
+
+#EXTINF:-1 tvg-logo="https://i.blogs.es/4d807c/cruella-cartel/1366_2000.jpeg" group-title="Película",Cruella (2021)
+https://69t.btv.mx/69T/32T/ENG-MOVIE/PEL/Peliculasa2022/P3L1CUL4S/Cruella%20%282021%29.mp4
+#https://ia903209.us.archive.org/22/items/la-pas-1i-0on-d-3-cr-1i-5to-2004-1080p-4-33-gb/Crue3ll4a%20%282021%29%20720p%20LAT%201.09%20GB.mp4
+#https://archive.org/download/tinaco_20210528/Crue11a.mkv
+
+#EXTINF:-1 tvg-logo="https://moviepostermexico.com/cdn/shop/files/wonka_ver2_xxlg_1024x1024@2x.jpg?v=1704764859" group-title="Película",Wonka (2023)
+https://archive.org/download/captura-de-pantalla-2023-12-07-21-56-26_202401/Wonka.2023.1080p-Dual-Lat.mkv
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR2nR3TMFBgFDEHf0cWGZIgnfkQ0nxS5kk2uA&s" group-title="Película",El Exorcista (1973) 
+https://ia801002.us.archive.org/20/items/1973-el-exorcista-720p-br-rip-x-264/%281973%29%20El%20Exorcista%20720p%20BrRip%20x264.ia.mp4
+#http://ia601507.us.archive.org/19/items/00000_202008/000000028.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/7b1b867312c8c161f5c68ddf1dd99e976dd7bf985873c4cd878c919b41a0f4a2.jpg" group-title="Película",El Rito (2011)
+https://archive.org/download/06_20251117_20251117/vim/06.mkv
+#https://dl.dropboxusercontent.com/s/ed2wtovw834sulu/SalynPM-SPM5r5a.mp4?dl=0
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BZGZmOTZjNzUtOTE4OS00OGM3LWJiNGEtZjk4Yzg2M2Q1YzYxXkEyXkFqcGc@._V1_.jpg" group-title="Película",It (2017)
+https://archive.org/download/9_20250723_20250723/linux/03.mp4
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcS0_GxvVo4k8blDG7z-JevWs0K8LgRa57SJ8Q&s" group-title="Película",It capítulo II (2019)
+https://archive.org/download/9_20250723_20250723/linux/04.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/ac1a58ff475f03be49d69da61eae0fb98c0156efaa9d535465b98b1b84070d79.jpg" group-title="Película",El exorcista del papa (2023)
+https://objectstorage.us-phoenix-1.oraclecloud.com/n/axa4wow3dcia/b/bucket-20201001-1658/o/2023pelis%2Fabril%2FVer%20El%20exorcista%20del%20papa%20online%20HD%20-%20Cuevana%202%20Espa%C3%B1ol.mp4
+
+#EXTINF:-1 tvg-logo="https://play-lh.googleusercontent.com/xMCJYkNkwVvgezWGsSd6qKgr4sScnap5hg5JkdjBxEQrErs5si9TWBB8JBvI1F8dqCa2" group-title="Película",El conjuro (2013)
+https://archive.org/download/e-2_20250817/E%20%281%29.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BMzM2OTE4ZWUtMzNiNy00MzhmLWE0YmMtZGE3ZTg2ZmUwODUzXkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Película",El conjuro 2 (2016)
+https://archive.org/download/e-2_20250817/E%20%282%29.mp4
+
+#EXTINF:-1 tvg-logo="https://play-lh.googleusercontent.com/eeEUyvUY7rXhKx7OBVFd621b0XhBlj5PFXEoRtaj3bykFC6n0hwhL5TvrulPX__CD0Li7IQqXK4wbC4CKqrX=w240-h480-rw" group-title="Película",El conjuro: El diablo me obligó a hacerlo (2021)
+https://archive.org/download/07_20260501/upload/10.mp4
+#https://archive.org/download/e-2_20250817/E%20%283%29.mp4
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTq6CT6CFaCGpshJe2XrPYXUAkQzJQRpRoGDQ&s" group-title="Película",El conjuro: últimos ritos (2025)
+https://archive.org/download/05_20260502/upload/11.mp4
+#https://dl.dropbox.com/scl/fi/tpxkv8hpyx4s48jx8sklw/sociales.mp4?rlkey=pfyzv59ydy0z8b69038g70qu3&st=kjf3i7cr&dl=0
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT89x20L-FuOY0IaJzRe-IsLApnFVRMX-OBng&s" group-title="Película",La Monja (2018)
+https://dl.dropboxusercontent.com/s/hywnw4dpw1wq2xy/SalynPM-L.M.mp4?dl=0
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTucgVpcswgTOvvNcKhBW-VaF5KxIgNpAdy2g&s" group-title="Película",La monja II (2023)
+https://dl.dropbox.com/scl/fi/66dcdiiyqxzqvdzj3d007/matematica.mp4?rlkey=ivab5kmylxvqvzi3lkigy8bcs&st=hviy92pk&dl=0
+#https://dl.dropbox.com/scl/fi/kmnntpc3ge31tk2nrlsko/m0nj4-2.mp4?rlkey=zu617etf1rgk7ruxlse72usa8
+
+#EXTINF:-1 tvg-logo="https://static.wikia.nocookie.net/moviepedia/images/9/9b/Annabelle-poster.jpg/revision/latest?cb=20140822183411&path-prefix=de" group-title="Película",Annabelle (2014)
+https://archive.org/download/041_20200519_202005/041.mkv
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/a301e58d5c6157bf829dc81ba8ddbfe4ebfbb99d01315522dc97d69cd07462f1.jpg" group-title="Película",Annabelle 2: La creación (2017)
+https://archive.org/download/041_20200519_202005/042.mkv
+
+#EXTINF:-1 tvg-logo="https://media.vogue.es/photos/5d2782a1695efa000881bb80/2:3/w_2560%2Cc_limit/ANNABELLE%2520VUELVE%2520A%2520CASA%2520MAIN.jpg" group-title="Película",Annabelle: Regresa a casa (2019)
+https://archive.org/download/muneca/mu%C3%B1eca.mp4
+
+###### Conciertos y música ######
+
+#EXTINF:-1 tvg-logo="https://www.bird-sf.com/wp-content/uploads/2022/10/header-80s-990x500.jpg" group-title="Música",80'S MUSIC
+https://1a-1791.com/video/s8/2/K/-/D/S/K-DSs.caa.rec.mp4?u=3&b=0
+
+#EXTINF:-1 tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ9aYpyjNzUVqBgTjUWn4uKmrfAIPXNy2HAA9qMChLuOPi4iOzbt3fhdL5G&s=10" group-title="Concierto",Muse
+https://ia800500.us.archive.org/26/items/mus-3u-m-s-1mul-4tio-n-720p-1-93-gb/Mus3uM%20S1mul4tioN%20720p%201%2C93%20GB.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/M/MV5BMjIxY2RkNjktM2U2Zi00NTU5LWI3ZTMtNTc5OTM1ZjI5MzE2XkEyXkFqcGc@._V1_.jpg" group-title="Concierto",Queen: Live at Wembley Stadium
+https://ia903209.us.archive.org/22/items/la-pas-1i-0on-d-3-cr-1i-5to-2004-1080p-4-33-gb/Qu3eEn%20L1v3%20at%20WEemble3y%201080p%202.93%20GB.mp4
+
+#EXTINF:-1 tvg-logo="https://f.rpp-noticias.io/2023/11/28/375137_1507288.jpg?width=1020&quality=80" group-title="Concierto",Taylor Swift: The Eras Tour (2023)
+https://grrfff66me7t.objectstorage.sa-saopaulo-1.oci.customer-oci.com/n/grrfff66me7t/b/Cubojoselyn/o/reset%2Fpeliculas%2Fdiciembre%2FVer%20TAYLOR%20SWIFT%20-%20THE%20ERAS%20TOUR%20online%20HD%20-%20Cuevana%202.mp4
+
+###### Chernobyl (Serie) ######
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/a184cd3e5b1ef34ffcaa1950324be3fcc050a00d98c5e88a27f90acbcdc2e4cb.jpg" group-title="Series",Chernobyl T1 Capitulo 1
+https://content.jwplatform.com/videos/RRYrtDGu-X2qpGveT.mp4
+#https://dl.dropboxusercontent.com/scl/fi/y7s8id3uovl7i7cnzmwwf/cch5trnoy51b4yl-ccs1.mp4?rlkey=76nk52t5naijdigrdonntrnkc
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/a184cd3e5b1ef34ffcaa1950324be3fcc050a00d98c5e88a27f90acbcdc2e4cb.jpg" group-title="Series",Chernobyl T1 Capitulo 2
+https://content.jwplatform.com/videos/QfgRLwoU-X2qpGveT.mp4
+#https://dl.dropboxusercontent.com/scl/fi/ca442b5fh6l5vukfbdd7o/cch5trnoy51b4yl-ccs2.mp4?rlkey=h72ttizso4w8wgvio6ryyh0is
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/a184cd3e5b1ef34ffcaa1950324be3fcc050a00d98c5e88a27f90acbcdc2e4cb.jpg" group-title="Series",Chernobyl T1 Capitulo 3
+https://content.jwplatform.com/videos/OqBxZ4qu-X2qpGveT.mp4
+#https://dl.dropboxusercontent.com/scl/fi/hfn2yr95r6brjd4c9pvub/cch5trnoy51b4yl-3.mp4?rlkey=lbnweldjvm1u5l53bqjxdafdr
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/a184cd3e5b1ef34ffcaa1950324be3fcc050a00d98c5e88a27f90acbcdc2e4cb.jpg" group-title="Series",Chernobyl T1 Capitulo 4
+https://content.jwplatform.com/videos/WdWa2qAk-6WFsbhPC.mp4
+#https://dl.dropboxusercontent.com/scl/fi/4jjn23jlaa06nq8yvoigv/cch5trnoy51b4yl-4.mp4?rlkey=6mmp3cznhsel289yh22lha2so
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/a184cd3e5b1ef34ffcaa1950324be3fcc050a00d98c5e88a27f90acbcdc2e4cb.jpg" group-title="Series",Chernobyl T1 Capitulo 5 
+https://content.jwplatform.com/videos/VtFG6vqz-X2qpGveT.mp4
+#https://dl.dropboxusercontent.com/scl/fi/97pqim2s4zxy761g5qo6k/cch5trnoy51b4yl-5.mp4?rlkey=b1j8um689w65on6gpf2ivrjsv
+
+###### Chespirito: Sin querer queriendo ######
+
+#EXTINF:0  group-title="Chespirito" tvg-logo="https://m.media-amazon.com/images/M/MV5BYjAyMjVjMjMtOTBlOC00N2ZkLWJiOTYtMTEwMWRjZTVkZjdjXkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Series",Chespirito: Sin querer queriendo cap 1 (2025)
+https://dl.dropboxusercontent.com/scl/fi/oxo1p1u6kkt8p0l6cysdh/C1P3I4T5ULA1O-1.mp4?rlkey=pij0zqhwe79r639ixvsptu2x3&st=innd8ndv
+
+#EXTINF:0  group-title="Chespirito" tvg-logo="https://m.media-amazon.com/images/M/MV5BYjAyMjVjMjMtOTBlOC00N2ZkLWJiOTYtMTEwMWRjZTVkZjdjXkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Series",Chespirito: Sin querer queriendo cap 2 (2025)
+https://dl.dropboxusercontent.com/scl/fi/4qd2z8q9zjvdhkxk7nxho/CH1ES1PRI4RI6TO-C1PRITU4LO-2.mp4?rlkey=aa18twymimdfkgxiyngpdxeir&st=lx61lvrt
+
+#EXTINF:0  group-title="Chespirito" tvg-logo="https://m.media-amazon.com/images/M/MV5BYjAyMjVjMjMtOTBlOC00N2ZkLWJiOTYtMTEwMWRjZTVkZjdjXkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Series",Chespirito: Sin querer queriendo cap 3 (2025)
+https://dl.dropboxusercontent.com/scl/fi/a9ys2py8ee8cawm5jnbzr/C1P3I4T5ULA1O-3.mp4?rlkey=w1tpotoa77cyh32fh9afz53n0&st=a2mx94cz
+
+#EXTINF:0  group-title="Chespirito" tvg-logo="https://m.media-amazon.com/images/M/MV5BYjAyMjVjMjMtOTBlOC00N2ZkLWJiOTYtMTEwMWRjZTVkZjdjXkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Series",Chespirito: Sin querer queriendo cap 4 (2025)
+https://dl.dropboxusercontent.com/scl/fi/3wazj194qbs3gp2fng42j/C1H3ESP1R4IT7O-4.mp4?rlkey=8v3be2mzwpq8afbvtd2km4z2w&st=h1fl4hm0
+
+#EXTINF:0  group-title="Chespirito" tvg-logo="https://m.media-amazon.com/images/M/MV5BYjAyMjVjMjMtOTBlOC00N2ZkLWJiOTYtMTEwMWRjZTVkZjdjXkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Series",Chespirito: Sin querer queriendo cap 5 (2025)
+https://dl.dropboxusercontent.com/scl/fi/ho3bk72h9dik3cc85ra8c/C1P3I4T5ULA1O-5.mp4?rlkey=3slmg7mieepize89g7tw420ki&st=lgssx86x
+
+#EXTINF:0  group-title="Chespirito" tvg-logo="https://m.media-amazon.com/images/M/MV5BYjAyMjVjMjMtOTBlOC00N2ZkLWJiOTYtMTEwMWRjZTVkZjdjXkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Series",Chespirito: Sin querer queriendo cap 6 (2025)
+https://dl.dropboxusercontent.com/scl/fi/362sig8t5nmc0manxcvjg/C1P3I4T5ULA1O-6.mp4?rlkey=w1l707mua7krdjuf5qjqzm5o0&st=f56uhsm3
+
+#EXTINF:0  group-title="Chespirito" tvg-logo="https://m.media-amazon.com/images/M/MV5BYjAyMjVjMjMtOTBlOC00N2ZkLWJiOTYtMTEwMWRjZTVkZjdjXkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Series",Chespirito: Sin querer queriendo cap 7 (2025)
+https://dl.dropboxusercontent.com/scl/fi/prf9dkdyq62zjeslj8dlo/C1P3I4T5ULA1O-7.mp4?rlkey=nqau5v8ed1bsrt1pwhty4340z&st=n7lw197t
+
+#EXTINF:0  group-title="Chespirito" tvg-logo="https://m.media-amazon.com/images/M/MV5BYjAyMjVjMjMtOTBlOC00N2ZkLWJiOTYtMTEwMWRjZTVkZjdjXkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" group-title="Series",Chespirito: Sin querer queriendo cap 8 (2025)
+https://dl.dropbox.com/scl/fi/ci9a8tq8pl9zmvw19atma/C1P2IT1U4LO-8.mkv?rlkey=dq1jocnl3r3p6scolfkahzmud&st=rku5lmxl&
+
+###### El Eternauta ######
+
+#EXTINF:0  group-title="El Eternauta" tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcROEqlBjOnsTpfKfrXZS376QjFK2toNWnLpaQ&s" group-title="Series",El Eternauta cap 1 (2025)
+https://dl.dropboxusercontent.com/scl/fi/erk8kxlntortrd0txmlz3/41EL-1ET4ER1NA14U5TA-1.mp4?rlkey=625i3w2x9ukeqv481o2deiamn&st=u02h2v77
+
+#EXTINF:0  group-title="El Eternauta" tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcROEqlBjOnsTpfKfrXZS376QjFK2toNWnLpaQ&s" group-title="Series",El Eternauta cap 2 (2025)
+https://dl.dropboxusercontent.com/scl/fi/yp1y5piesbdnb22lqxluv/41EL-1ET4ER1NA14U5TA-2.mp4?rlkey=7vp2hastm8vhharpuhqusc235&st=wqvfgh9w
+
+#EXTINF:0  group-title="El Eternauta" tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcROEqlBjOnsTpfKfrXZS376QjFK2toNWnLpaQ&s" group-title="Series",El Eternauta cap 3 (2025)
+https://dl.dropboxusercontent.com/scl/fi/pgackxjwdydr2e1in05yv/41EL-1ET4ER1NA14U5TA-3.mp4?rlkey=2jnolr90tnmntda5697hi77ou&st=pl9xzyxm
+
+#EXTINF:0  group-title="El Eternauta" tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcROEqlBjOnsTpfKfrXZS376QjFK2toNWnLpaQ&s" group-title="Series",El Eternauta cap 4 (2025)
+https://dl.dropboxusercontent.com/scl/fi/ikd6oahqt881nvi43uzbr/41EL-1ET4ER1NA14U5TA-4.mp4?rlkey=p1ebpb91yvvhdqje3ec3wxqed&st=wc0fijys
+
+#EXTINF:0  group-title="El Eternauta" tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcROEqlBjOnsTpfKfrXZS376QjFK2toNWnLpaQ&s" group-title="Series",El Eternauta cap 5 (2025)
+https://dl.dropboxusercontent.com/scl/fi/izzvvwuj4bkftao02ewbz/41EL-1ET4ER1NA14U5TA-5.mp4?rlkey=dkcpdwpffacwfsh93p2rzr3p6&st=7q1p1kuw
+
+#EXTINF:0  group-title="El Eternauta" tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcROEqlBjOnsTpfKfrXZS376QjFK2toNWnLpaQ&s" group-title="Series",El Eternauta cap 6 (2025)
+https://dl.dropboxusercontent.com/scl/fi/bmvikc2p5h09lq08mhrpi/41EL-1ET4ER1NA14U5TA-6.mp4?rlkey=othsli60ymc9vd5j4adk7o0bb&st=z7vbxkeg
+
+###### Menem ######
+
+#EXTINF:-1  group-title="Menem" tvg-id="Series" tvg-logo="https://i.scdn.co/image/ab67616d0000b2732bc5ca29c0b94af14deb3c7b",Menem 01x1 El Regreso del Caudillo
+https://dl.dropbox.com/scl/fi/8mzlw56pzfq997vk7vp6e/mstemstica-1.mp4?rlkey=lhyid5bkyc4iu4o6jelq1y279&st=xzzkdm3v&dl=0
+
+#EXTINF:-1  group-title="Menem" tvg-id="Series" tvg-logo="https://i.scdn.co/image/ab67616d0000b2732bc5ca29c0b94af14deb3c7b",Menem 02x1 Juego de Poder
+https://dl.dropbox.com/scl/fi/atduhk9sohn7juztj4czs/mstemstica-2.mp4?rlkey=rh6q18899zxdkxououkxfnmwd&st=0iqahuxq&dl=0
+
+#EXTINF:-1  group-title="Menem" tvg-id="Series" tvg-logo="https://i.scdn.co/image/ab67616d0000b2732bc5ca29c0b94af14deb3c7b",Menem 03x1 La Trama Oculta
+https://dl.dropbox.com/scl/fi/cu8m5imnnu1qe85hu3pzo/mstemstica-3.mp4?rlkey=ttzjnn5ieq5zqavwprgpqx4z6&st=2n1l1fdo&dl=0
+
+#EXTINF:-1  group-title="Menem" tvg-id="Series" tvg-logo="https://i.scdn.co/image/ab67616d0000b2732bc5ca29c0b94af14deb3c7b",Menem 04x1 Traiciones y Lealtades
+https://dl.dropbox.com/scl/fi/jbdomq2n7t751izovri3g/mstemstica-4.mp4?rlkey=oo8r4bse3ldxxd70971lnp4ae&st=744h49b1&dl=0
+
+#EXTINF:-1  group-title="Menem" tvg-id="Series" tvg-logo="https://i.scdn.co/image/ab67616d0000b2732bc5ca29c0b94af14deb3c7b",Menem 05x1 El Precio del Poder
+https://dl.dropbox.com/scl/fi/hy95khg7wj6zkfyjrrpgy/mstemstica-5.mp4?rlkey=mq77altay9il1u6eka00l5wt4&st=31hf26qh&dl=0
+
+#EXTINF:-1  group-title="Menem" tvg-id="Series" tvg-logo="https://i.scdn.co/image/ab67616d0000b2732bc5ca29c0b94af14deb3c7b",Menem 06x1 El Final del Juego
+https://dl.dropbox.com/scl/fi/tzax6yvhip0391kasqw0l/mstemstica-6.mp4?rlkey=8t0iypsb8pw5880nb2ijua7co&st=hvn2fq7p&dl=0
+
+###### Coraje el Perro Cobarde ######
+
+#EXTM3U
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 1x1 Una noche en el Motel Katz / La barbacoa de la abuela cajún
+http://archive.org/download/26_20190827_20190827/1.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 1x2 La sombra de Coraje / Dr Le Quack especialista en amnesia
+http://archive.org/download/26_20190827_20190827/2.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 1x3 Coraje conoce a Pie Grande / Cabeza explosiva
+http://archive.org/download/26_20190827_20190827/3.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 1x4 El demonio en el colchón / El espeluznante Fred
+http://archive.org/download/26_20190827_20190827/4.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 1x5 La noche del hombre topo / Día de las madres
+http://archive.org/download/26_20190827_20190827/5.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 1x6 Los hermanos pato / Shirley la médium
+http://archive.org/download/26_20190827_20190827/6.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 1x7 La maldición del Rey Ramsés / El pie que aprieta
+http://archive.org/download/26_20190827_20190827/7.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 1x8 El jorobado de Ningún Lugar / Los dioses deben estar locos
+http://archive.org/download/26_20190827_20190827/8.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 1x9 La reina del charco negro / Todos quieren dirigir
+http://archive.org/download/26_20190827_20190827/9.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 1x10 El muñeco de nieve viene / El patito precioso maravilloso adorable y encantador
+http://archive.org/download/26_20190827_20190827/10.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 1x11 Cabezas de carne / Club Katz
+http://archive.org/download/26_20190827_20190827/11.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 1x12 La Venganza del Pollo Extratrerrestre
+http://archive.org/download/26_20190827_20190827/12.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 1x13 La pequeña Muriel / El gran Fusilli
+http://archive.org/download/26_20190827_20190827/13.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 2x1 El árbol mágico de Ningún Lugar / Randy el Robot
+http://archive.org/download/26_20190827_20190827/14.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 2x2 La maldición de Shirley / Coraje en la Gran Ciudad Apestosa
+http://archive.org/download/26_20190827_20190827/15.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 2x3 Hasta en las peores familias / 1.000 años de Coraje
+http://archive.org/download/26_20190827_20190827/16.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 2x4 Coraje y la Momia / Muriel invisible
+http://archive.org/download/26_20190827_20190827/17.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 2x5 La aspiradora / Misión al Sol
+http://archive.org/download/26_20190827_20190827/18.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 2x6 La Mosca Coraje / El eterno segundo lugar
+http://archive.org/download/26_20190827_20190827/19.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 2x7 Televisión de Ningún Lugar / Mega Muriel la Magnífica
+http://archive.org/download/26_20190827_20190827/20.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 2x8 Un día de pelos / La gorra de oro
+http://archive.org/download/26_20190827_20190827/21.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 2x9 La serpiente del río del mal / El trasplante
+http://archive.org/download/26_20190827_20190827/22.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 2x10 El extraterrestre / El Vaquero Coraje
+http://archive.org/download/26_20190827_20190827/23.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 2x11 La mosca / El fantasma de McPhearson
+http://archive.org/download/26_20190827_20190827/24.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 2x12 La maldición / El ataque de la ballena de arena
+http://archive.org/download/26_20190827_20190827/25.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 2x13 La torre del Dr. Zalost
+http://archive.org/download/26_20190827_20190827/26.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 3x1 La Doble de Muriel / Coraje contra el Robot Coraje
+http://archive.org/download/26_20190827_20190827/27.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 3x2 El Campamento del Terror / El Disco Mágico
+http://archive.org/download/26_20190827_20190827/28.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 3x3 La Tormenta / El Mago de los Sueños
+http://archive.org/download/26_20190827_20190827/29.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 3x4 Coraje en el Disco Duro / El Viaje de las Valkyrias
+http://archive.org/download/26_20190827_20190827/30.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 3x5 Buceo Increíble / El Contaminador
+http://archive.org/download/26_20190827_20190827/31.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 3x6 Viaje al Fondo del Mar / La Cortina de la Crueldad
+http://archive.org/download/26_20190827_20190827/32.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 3x7 El Banquete de las Ranas / El Gusano de Tulip
+http://archive.org/download/26_20190827_20190827/33.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 3x8 Romance en el Louvre / La Noche del EspantapájarosRomance en el Louvre
+http://archive.org/download/26_20190827_20190827/34.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 3x9 Magia / Niñera de Aves
+http://archive.org/download/26_20190827_20190827/35.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 3x10 Temas Pez-culiares / Gente Mala y Violenta
+http://archive.org/download/26_20190827_20190827/36.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 3x11 La Venganza del Muñeco de Nieve / El Nuevo Estanque
+http://archive.org/download/26_20190827_20190827/37.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 3x12 Club de Acolchados / El Rey del Flan
+http://archive.org/download/26_20190827_20190827/38.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 3x13 Juicio Submarino / El Domo
+http://archive.org/download/26_20190827_20190827/39.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 4x1 La Historia de un Castor / El Cascanueces
+http://archive.org/download/26_20190827_20190827/40.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 4x2 Aventura en Escocia / La Casa Llama
+http://archive.org/download/26_20190827_20190827/41.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 4x3 Robo en un Globo / Los Espíritus del Molino
+http://archive.org/download/26_20190827_20190827/42.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 4x4 Un Resfriado Poco Común / Temporada de Caza
+http://archive.org/download/26_20190827_20190827/43.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 4x5 La Novia del Monstruo del Pantano / La Cabra La Cabra
+http://archive.org/download/26_20190827_20190827/44.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 4x6 Muriel Estalla / Perfiles de Coraje
+http://archive.org/download/26_20190827_20190827/45.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 4x7 La Máscara
+http://archive.org/download/26_20190827_20190827/46.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 4x8 Tigre Agachado Perro Escondido / Muriel Enmudecida
+http://archive.org/download/26_20190827_20190827/47.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 4x9 Aqua-Granjero / La Comida del Dragón
+http://archive.org/download/26_20190827_20190827/48.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 4x10 El Último Creador de Estrellas / El Hijo del Pollo del Espacio Exterior
+http://archive.org/download/26_20190827_20190827/49.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 4x11 Cura con Coraje / Juego de Venganza
+http://archive.org/download/26_20190827_20190827/50.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 4x12 Cabaret Coraje / La Cólera de la Bibliotecaria
+http://archive.org/download/26_20190827_20190827/51.mp4
+
+#EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 4x13 La Historia de Coraje / Perfecto
+http://archive.org/download/26_20190827_20190827/52.mp4
+
+##EXTINF:-1  group-title="Coraje el Perro Cobarde" tvg-id="Series" tvg-logo="https://static.wikia.nocookie.net/doblaje/images/a/ac/CorajeElPerroCobarde.jpg/revision/latest?cb=20231104172041&path-prefix=es",Coraje el Perro Cobarde 53??
+#http://archive.org/download/26_20190827_20190827/53.mp4
+
+###### Malcolm in the middle ######
+
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 1" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E01
+https://dn720405.ca.archive.org/0/items/malcolm-el-de-en-medio-t-01/Malcolm%20El%20De%20En%20Medio%20T01E01.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 1" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E02
+https://dn720405.ca.archive.org/0/items/malcolm-el-de-en-medio-t-01/Malcolm%20El%20De%20En%20Medio%20T01E02.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 1" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E03
+https://dn720405.ca.archive.org/0/items/malcolm-el-de-en-medio-t-01/Malcolm%20El%20De%20En%20Medio%20T01E03.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 1" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E04
+https://dn720405.ca.archive.org/0/items/malcolm-el-de-en-medio-t-01/Malcolm%20El%20De%20En%20Medio%20T01E04.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 1" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E05
+https://dn720405.ca.archive.org/0/items/malcolm-el-de-en-medio-t-01/Malcolm%20El%20De%20En%20Medio%20T01E05.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 1" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E06
+https://dn720405.ca.archive.org/0/items/malcolm-el-de-en-medio-t-01/Malcolm%20El%20De%20En%20Medio%20T01E06.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 1" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E07
+https://dn720405.ca.archive.org/0/items/malcolm-el-de-en-medio-t-01/Malcolm%20El%20De%20En%20Medio%20T01E07.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 1" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E08
+https://dn720405.ca.archive.org/0/items/malcolm-el-de-en-medio-t-01/Malcolm%20El%20De%20En%20Medio%20T01E08.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 1" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E09
+https://dn720405.ca.archive.org/0/items/malcolm-el-de-en-medio-t-01/Malcolm%20El%20De%20En%20Medio%20T01E09.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 1" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E10
+https://dn720405.ca.archive.org/0/items/malcolm-el-de-en-medio-t-01/Malcolm%20El%20De%20En%20Medio%20T01E10.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 1" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E11
+https://dn720405.ca.archive.org/0/items/malcolm-el-de-en-medio-t-01/Malcolm%20El%20De%20En%20Medio%20T01E11.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 1" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E12
+https://dn720405.ca.archive.org/0/items/malcolm-el-de-en-medio-t-01/Malcolm%20El%20De%20En%20Medio%20T01E12.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 1" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E13
+https://dn720405.ca.archive.org/0/items/malcolm-el-de-en-medio-t-01/Malcolm%20El%20De%20En%20Medio%20T01E13.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 1" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E14
+https://dn720405.ca.archive.org/0/items/malcolm-el-de-en-medio-t-01/Malcolm%20El%20De%20En%20Medio%20T01E14.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 1" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E15
+https://dn720405.ca.archive.org/0/items/malcolm-el-de-en-medio-t-01/Malcolm%20El%20De%20En%20Medio%20T01E15.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 1" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E16
+https://dn720405.ca.archive.org/0/items/malcolm-el-de-en-medio-t-01/Malcolm%20El%20De%20En%20Medio%20T01E16.mp4
+
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E01
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E01.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E02
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E02.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E03
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E03.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E04
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E04.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E05
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E05.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E06
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E06.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E07
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E07.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E08
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E08.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E09
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E09.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E10
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E10.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E11
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E11.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E12
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E12.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E13
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E13.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E14
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E14.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E15
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E15.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E16
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E16.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E17
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E17.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E18
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E18.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E19
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E19.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E20
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E20.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E21
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E21.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E22
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E22.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E23
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E23.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E24
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E24.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 2" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E25
+https://ia800603.us.archive.org/3/items/malcolm-el-de-en-medio-s-02/Malcolm%20El%20De%20En%20Medio%20S02E25.mp4
+
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 3" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E01
+https://ia800606.us.archive.org/35/items/malcolm-el-de-en-medio-s-03_202412/Malcolm%20El%20De%20En%20Medio%20S03E01.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 3" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E02
+https://ia800606.us.archive.org/35/items/malcolm-el-de-en-medio-s-03_202412/Malcolm%20El%20De%20En%20Medio%20S03E02.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 3" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E03
+https://ia800606.us.archive.org/35/items/malcolm-el-de-en-medio-s-03_202412/Malcolm%20El%20De%20En%20Medio%20S03E03.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 3" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E04
+https://ia800606.us.archive.org/35/items/malcolm-el-de-en-medio-s-03_202412/Malcolm%20El%20De%20En%20Medio%20S03E04.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 3" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E05
+https://ia800606.us.archive.org/35/items/malcolm-el-de-en-medio-s-03_202412/Malcolm%20El%20De%20En%20Medio%20S03E05.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 3" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E06
+https://ia800606.us.archive.org/35/items/malcolm-el-de-en-medio-s-03_202412/Malcolm%20El%20De%20En%20Medio%20S03E06.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 3" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E07
+https://ia800606.us.archive.org/35/items/malcolm-el-de-en-medio-s-03_202412/Malcolm%20El%20De%20En%20Medio%20S03E07.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 3" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E08
+https://ia800606.us.archive.org/35/items/malcolm-el-de-en-medio-s-03_202412/Malcolm%20El%20De%20En%20Medio%20S03E08.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 3" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E09
+https://ia800606.us.archive.org/35/items/malcolm-el-de-en-medio-s-03_202412/Malcolm%20El%20De%20En%20Medio%20S03E09.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 3" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E10
+https://ia800606.us.archive.org/35/items/malcolm-el-de-en-medio-s-03_202412/Malcolm%20El%20De%20En%20Medio%20S03E10.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 3" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E11
+https://ia800606.us.archive.org/35/items/malcolm-el-de-en-medio-s-03_202412/Malcolm%20El%20De%20En%20Medio%20S03E11.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 3" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E12
+https://ia800606.us.archive.org/35/items/malcolm-el-de-en-medio-s-03_202412/Malcolm%20El%20De%20En%20Medio%20S03E12.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 3" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E13
+https://ia800606.us.archive.org/35/items/malcolm-el-de-en-medio-s-03_202412/Malcolm%20El%20De%20En%20Medio%20S03E13.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 3" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E14
+https://ia800606.us.archive.org/35/items/malcolm-el-de-en-medio-s-03_202412/Malcolm%20El%20De%20En%20Medio%20S03E14.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 3" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E15
+https://ia800606.us.archive.org/35/items/malcolm-el-de-en-medio-s-03_202412/Malcolm%20El%20De%20En%20Medio%20S03E15.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 3" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E16
+https://ia800606.us.archive.org/35/items/malcolm-el-de-en-medio-s-03_202412/Malcolm%20El%20De%20En%20Medio%20S03E16.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 3" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E17
+https://ia800606.us.archive.org/35/items/malcolm-el-de-en-medio-s-03_202412/Malcolm%20El%20De%20En%20Medio%20S03E17.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 3" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E18
+https://ia800606.us.archive.org/35/items/malcolm-el-de-en-medio-s-03_202412/Malcolm%20El%20De%20En%20Medio%20S03E18.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 3" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E19
+https://ia800606.us.archive.org/35/items/malcolm-el-de-en-medio-s-03_202412/Malcolm%20El%20De%20En%20Medio%20S03E19.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 3" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E20
+https://ia800606.us.archive.org/35/items/malcolm-el-de-en-medio-s-03_202412/Malcolm%20El%20De%20En%20Medio%20S03E20.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 3" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E21
+https://ia800606.us.archive.org/35/items/malcolm-el-de-en-medio-s-03_202412/Malcolm%20El%20De%20En%20Medio%20S03E21.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 3" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E22
+https://ia800606.us.archive.org/35/items/malcolm-el-de-en-medio-s-03_202412/Malcolm%20El%20De%20En%20Medio%20S03E22.mp4
+
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 4" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E01
+https://ia800604.us.archive.org/26/items/malcolm-el-de-en-medio-s-04/Malcolm%20El%20De%20En%20Medio%20S04E01.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 4" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E02
+https://ia800604.us.archive.org/26/items/malcolm-el-de-en-medio-s-04/Malcolm%20El%20De%20En%20Medio%20S04E02.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 4" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E03
+https://ia800604.us.archive.org/26/items/malcolm-el-de-en-medio-s-04/Malcolm%20El%20De%20En%20Medio%20S04E03.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 4" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E04
+https://ia800604.us.archive.org/26/items/malcolm-el-de-en-medio-s-04/Malcolm%20El%20De%20En%20Medio%20S04E04.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 4" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E05
+https://ia800604.us.archive.org/26/items/malcolm-el-de-en-medio-s-04/Malcolm%20El%20De%20En%20Medio%20S04E05.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 4" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E06
+https://ia800604.us.archive.org/26/items/malcolm-el-de-en-medio-s-04/Malcolm%20El%20De%20En%20Medio%20S04E06.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 4" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E07
+https://ia800604.us.archive.org/26/items/malcolm-el-de-en-medio-s-04/Malcolm%20El%20De%20En%20Medio%20S04E07.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 4" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E08
+https://ia800604.us.archive.org/26/items/malcolm-el-de-en-medio-s-04/Malcolm%20El%20De%20En%20Medio%20S04E08.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 4" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E09
+https://ia800604.us.archive.org/26/items/malcolm-el-de-en-medio-s-04/Malcolm%20El%20De%20En%20Medio%20S04E09.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 4" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E10
+https://ia800604.us.archive.org/26/items/malcolm-el-de-en-medio-s-04/Malcolm%20El%20De%20En%20Medio%20S04E10.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 4" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E11
+https://ia800604.us.archive.org/26/items/malcolm-el-de-en-medio-s-04/Malcolm%20El%20De%20En%20Medio%20S04E11.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 4" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E12
+https://ia800604.us.archive.org/26/items/malcolm-el-de-en-medio-s-04/Malcolm%20El%20De%20En%20Medio%20S04E12.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 4" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E13
+https://ia800604.us.archive.org/26/items/malcolm-el-de-en-medio-s-04/Malcolm%20El%20De%20En%20Medio%20S04E13.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 4" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E14
+https://ia800604.us.archive.org/26/items/malcolm-el-de-en-medio-s-04/Malcolm%20El%20De%20En%20Medio%20S04E14.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 4" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E15
+https://ia800604.us.archive.org/26/items/malcolm-el-de-en-medio-s-04/Malcolm%20El%20De%20En%20Medio%20S04E15.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 4" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E16
+https://ia800604.us.archive.org/26/items/malcolm-el-de-en-medio-s-04/Malcolm%20El%20De%20En%20Medio%20S04E16.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 4" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E17
+https://ia800604.us.archive.org/26/items/malcolm-el-de-en-medio-s-04/Malcolm%20El%20De%20En%20Medio%20S04E17.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 4" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E18
+https://ia800604.us.archive.org/26/items/malcolm-el-de-en-medio-s-04/Malcolm%20El%20De%20En%20Medio%20S04E18.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 4" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E19
+https://ia800604.us.archive.org/26/items/malcolm-el-de-en-medio-s-04/Malcolm%20El%20De%20En%20Medio%20S04E19.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 4" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E20
+https://ia800604.us.archive.org/26/items/malcolm-el-de-en-medio-s-04/Malcolm%20El%20De%20En%20Medio%20S04E20.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 4" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E21
+https://ia800604.us.archive.org/26/items/malcolm-el-de-en-medio-s-04/Malcolm%20El%20De%20En%20Medio%20S04E21.mp4
+
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 5" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E01
+https://ia600608.us.archive.org/34/items/malcolm-el-de-en-medio-s-05/Malcolm%20El%20De%20En%20Medio%20S05E01.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 5" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E02
+https://ia600608.us.archive.org/34/items/malcolm-el-de-en-medio-s-05/Malcolm%20El%20De%20En%20Medio%20S05E02.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 5" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E03
+https://ia600608.us.archive.org/34/items/malcolm-el-de-en-medio-s-05/Malcolm%20El%20De%20En%20Medio%20S05E03.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 5" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E04
+https://ia600608.us.archive.org/34/items/malcolm-el-de-en-medio-s-05/Malcolm%20El%20De%20En%20Medio%20S05E04.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 5" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E05
+https://ia600608.us.archive.org/34/items/malcolm-el-de-en-medio-s-05/Malcolm%20El%20De%20En%20Medio%20S05E05.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 5" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E06
+https://ia600608.us.archive.org/34/items/malcolm-el-de-en-medio-s-05/Malcolm%20El%20De%20En%20Medio%20S05E06.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 5" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E07
+https://ia600608.us.archive.org/34/items/malcolm-el-de-en-medio-s-05/Malcolm%20El%20De%20En%20Medio%20S05E07.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 5" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E08
+https://ia600608.us.archive.org/34/items/malcolm-el-de-en-medio-s-05/Malcolm%20El%20De%20En%20Medio%20S05E08.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 5" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E09
+https://ia600608.us.archive.org/34/items/malcolm-el-de-en-medio-s-05/Malcolm%20El%20De%20En%20Medio%20S05E09.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 5" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E10
+https://ia600608.us.archive.org/34/items/malcolm-el-de-en-medio-s-05/Malcolm%20El%20De%20En%20Medio%20S05E10.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 5" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E11
+https://ia600608.us.archive.org/34/items/malcolm-el-de-en-medio-s-05/Malcolm%20El%20De%20En%20Medio%20S05E11.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 5" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E12
+https://ia600608.us.archive.org/34/items/malcolm-el-de-en-medio-s-05/Malcolm%20El%20De%20En%20Medio%20S05E12.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 5" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E13
+https://ia600608.us.archive.org/34/items/malcolm-el-de-en-medio-s-05/Malcolm%20El%20De%20En%20Medio%20S05E13.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 5" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E14
+https://ia600608.us.archive.org/34/items/malcolm-el-de-en-medio-s-05/Malcolm%20El%20De%20En%20Medio%20S05E14.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 5" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E15
+https://ia600608.us.archive.org/34/items/malcolm-el-de-en-medio-s-05/Malcolm%20El%20De%20En%20Medio%20S05E15.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 5" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E16
+https://ia600608.us.archive.org/34/items/malcolm-el-de-en-medio-s-05/Malcolm%20El%20De%20En%20Medio%20S05E16.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 5" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E17
+https://ia600608.us.archive.org/34/items/malcolm-el-de-en-medio-s-05/Malcolm%20El%20De%20En%20Medio%20S05E17.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 5" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E18
+https://ia600608.us.archive.org/34/items/malcolm-el-de-en-medio-s-05/Malcolm%20El%20De%20En%20Medio%20S05E18.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 5" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E19
+https://ia600608.us.archive.org/34/items/malcolm-el-de-en-medio-s-05/Malcolm%20El%20De%20En%20Medio%20S05E19.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 5" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E20
+https://ia600608.us.archive.org/34/items/malcolm-el-de-en-medio-s-05/Malcolm%20El%20De%20En%20Medio%20S05E20.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 5" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E21
+https://ia600608.us.archive.org/34/items/malcolm-el-de-en-medio-s-05/Malcolm%20El%20De%20En%20Medio%20S05E21.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 5" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E22
+https://ia600608.us.archive.org/34/items/malcolm-el-de-en-medio-s-05/Malcolm%20El%20De%20En%20Medio%20S05E22.mp4
+
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 6" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E01
+https://ia600607.us.archive.org/21/items/malcolm-el-de-en-medio-s-06/Malcolm%20El%20De%20En%20Medio%20S06E01.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 6" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E02
+https://ia600607.us.archive.org/21/items/malcolm-el-de-en-medio-s-06/Malcolm%20El%20De%20En%20Medio%20S06E02.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 6" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E03
+https://ia600607.us.archive.org/21/items/malcolm-el-de-en-medio-s-06/Malcolm%20El%20De%20En%20Medio%20S06E03.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 6" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E04
+https://ia600607.us.archive.org/21/items/malcolm-el-de-en-medio-s-06/Malcolm%20El%20De%20En%20Medio%20S06E04.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 6" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E05
+https://ia600607.us.archive.org/21/items/malcolm-el-de-en-medio-s-06/Malcolm%20El%20De%20En%20Medio%20S06E05.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 6" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E06
+https://ia600607.us.archive.org/21/items/malcolm-el-de-en-medio-s-06/Malcolm%20El%20De%20En%20Medio%20S06E06.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 6" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E07
+https://ia600607.us.archive.org/21/items/malcolm-el-de-en-medio-s-06/Malcolm%20El%20De%20En%20Medio%20S06E07.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 6" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E08
+https://ia600607.us.archive.org/21/items/malcolm-el-de-en-medio-s-06/Malcolm%20El%20De%20En%20Medio%20S06E08.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 6" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E09
+https://ia600607.us.archive.org/21/items/malcolm-el-de-en-medio-s-06/Malcolm%20El%20De%20En%20Medio%20S06E09.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 6" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E10
+https://ia600607.us.archive.org/21/items/malcolm-el-de-en-medio-s-06/Malcolm%20El%20De%20En%20Medio%20S06E10.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 6" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E11
+https://ia600607.us.archive.org/21/items/malcolm-el-de-en-medio-s-06/Malcolm%20El%20De%20En%20Medio%20S06E11.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 6" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E12
+https://ia600607.us.archive.org/21/items/malcolm-el-de-en-medio-s-06/Malcolm%20El%20De%20En%20Medio%20S06E12.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 6" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E13
+https://ia600607.us.archive.org/21/items/malcolm-el-de-en-medio-s-06/Malcolm%20El%20De%20En%20Medio%20S06E13.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 6" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E14
+https://ia600607.us.archive.org/21/items/malcolm-el-de-en-medio-s-06/Malcolm%20El%20De%20En%20Medio%20S06E14.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 6" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E15
+https://ia600607.us.archive.org/21/items/malcolm-el-de-en-medio-s-06/Malcolm%20El%20De%20En%20Medio%20S06E15.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 6" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E16
+https://ia600607.us.archive.org/21/items/malcolm-el-de-en-medio-s-06/Malcolm%20El%20De%20En%20Medio%20S06E16.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 6" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E17
+https://ia600607.us.archive.org/21/items/malcolm-el-de-en-medio-s-06/Malcolm%20El%20De%20En%20Medio%20S06E17.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 6" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E18
+https://ia600607.us.archive.org/21/items/malcolm-el-de-en-medio-s-06/Malcolm%20El%20De%20En%20Medio%20S06E18.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 6" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E19
+https://ia600607.us.archive.org/21/items/malcolm-el-de-en-medio-s-06/Malcolm%20El%20De%20En%20Medio%20S06E19.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 6" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E20
+https://ia600607.us.archive.org/21/items/malcolm-el-de-en-medio-s-06/Malcolm%20El%20De%20En%20Medio%20S06E20.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 6" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E21
+https://ia600607.us.archive.org/21/items/malcolm-el-de-en-medio-s-06/Malcolm%20El%20De%20En%20Medio%20S06E21.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 6" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E22
+https://ia600607.us.archive.org/21/items/malcolm-el-de-en-medio-s-06/Malcolm%20El%20De%20En%20Medio%20S06E22.mp4
+
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 7" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E01
+https://dn720004.ca.archive.org/0/items/malcolm-el-de-en-medio-t-07/Malcolm%20El%20De%20En%20Medio%20T07E01.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 7" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E02
+https://dn720004.ca.archive.org/0/items/malcolm-el-de-en-medio-t-07/Malcolm%20El%20De%20En%20Medio%20T07E02.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 7" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E03
+https://dn720004.ca.archive.org/0/items/malcolm-el-de-en-medio-t-07/Malcolm%20El%20De%20En%20Medio%20T07E03.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 7" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E04
+https://dn720004.ca.archive.org/0/items/malcolm-el-de-en-medio-t-07/Malcolm%20El%20De%20En%20Medio%20T07E04.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 7" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E05
+https://dn720004.ca.archive.org/0/items/malcolm-el-de-en-medio-t-07/Malcolm%20El%20De%20En%20Medio%20T07E05.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 7" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E06
+https://dn720004.ca.archive.org/0/items/malcolm-el-de-en-medio-t-07/Malcolm%20El%20De%20En%20Medio%20T07E06.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 7" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E07
+https://dn720004.ca.archive.org/0/items/malcolm-el-de-en-medio-t-07/Malcolm%20El%20De%20En%20Medio%20T07E07.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 7" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E08
+https://dn720004.ca.archive.org/0/items/malcolm-el-de-en-medio-t-07/Malcolm%20El%20De%20En%20Medio%20T07E08.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 7" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E09
+https://dn720004.ca.archive.org/0/items/malcolm-el-de-en-medio-t-07/Malcolm%20El%20De%20En%20Medio%20T07E09.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 7" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E10
+https://dn720004.ca.archive.org/0/items/malcolm-el-de-en-medio-t-07/Malcolm%20El%20De%20En%20Medio%20T07E10.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 7" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E11
+https://dn720004.ca.archive.org/0/items/malcolm-el-de-en-medio-t-07/Malcolm%20El%20De%20En%20Medio%20T07E11.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 7" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E12
+https://dn720004.ca.archive.org/0/items/malcolm-el-de-en-medio-t-07/Malcolm%20El%20De%20En%20Medio%20T07E12.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 7" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E13
+https://dn720004.ca.archive.org/0/items/malcolm-el-de-en-medio-t-07/Malcolm%20El%20De%20En%20Medio%20T07E13.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 7" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E14
+https://dn720004.ca.archive.org/0/items/malcolm-el-de-en-medio-t-07/Malcolm%20El%20De%20En%20Medio%20T07E14.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 7" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E15
+https://dn720004.ca.archive.org/0/items/malcolm-el-de-en-medio-t-07/Malcolm%20El%20De%20En%20Medio%20T07E15.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 7" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E16
+https://dn720004.ca.archive.org/0/items/malcolm-el-de-en-medio-t-07/Malcolm%20El%20De%20En%20Medio%20T07E16.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 7" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E17
+https://dn720004.ca.archive.org/0/items/malcolm-el-de-en-medio-t-07/Malcolm%20El%20De%20En%20Medio%20T07E17.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 7" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E18
+https://dn720004.ca.archive.org/0/items/malcolm-el-de-en-medio-t-07/Malcolm%20El%20De%20En%20Medio%20T07E18.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 7" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E19
+https://dn720004.ca.archive.org/0/items/malcolm-el-de-en-medio-t-07/Malcolm%20El%20De%20En%20Medio%20T07E19.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 7" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E20
+https://dn720004.ca.archive.org/0/items/malcolm-el-de-en-medio-t-07/Malcolm%20El%20De%20En%20Medio%20T07E20.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 7" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E21
+https://dn720004.ca.archive.org/0/items/malcolm-el-de-en-medio-t-07/Malcolm%20El%20De%20En%20Medio%20T07E21.mp4
+#EXTINF:-1 tvg-id="Series" group-title="Temporada 7" tvg-logo="https://static.wikia.nocookie.net/logopedia/images/a/a0/Malcom_in_the_middle.jpg/revision/latest?cb=20120219182626",Malcolm in the Middle E22
+https://dn720004.ca.archive.org/0/items/malcolm-el-de-en-medio-t-07/Malcolm%20El%20De%20En%20Medio%20T07E22.mp4
+
+###### Yo soy Betty, la fea ######
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E01
+https://ia801508.us.archive.org/12/items/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E01.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E02
+https://ia801508.us.archive.org/12/items/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E02.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E03
+https://ia801508.us.archive.org/12/items/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E03.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E04
+https://ia801508.us.archive.org/12/items/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E04.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E05
+https://ia601508.us.archive.org/12/items/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E05.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E06
+https://ia801508.us.archive.org/12/items/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E06.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E07
+https://ia601508.us.archive.org/12/items/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E07.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E08
+https://ia601508.us.archive.org/12/items/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E08.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E09
+https://ia601508.us.archive.org/12/items/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E09.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E10
+https://ia801508.us.archive.org/12/items/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E10.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E11
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E11.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E12
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E12.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E13
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E13.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E14
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E14.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E15
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E15.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E16
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E16.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E17
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E17.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E18
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E18.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E19
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E19.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E20
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E20.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E21
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E21.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E22
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E22.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E23
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E23.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E24
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E24.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E25
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E25.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E26
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E26.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E27
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E27.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E28
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E28.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E29
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E29.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E30
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E30.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E31
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E31.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E32
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E32.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E33
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E33.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E34
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E34.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E35
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E35.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E36
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E36.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E37
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E37.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E38
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E38.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E39
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E39.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E40
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E40.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E41
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E41.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E42
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E42.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E43
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E43.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E44
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E44.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E45
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E45.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E46
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E46.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E47
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E47.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E48
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E48.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E49
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E49.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E50
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E50.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E51
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E51.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E52
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E52.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E53
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E53.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E54
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E54.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E55
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E55.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E56
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E56.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E57
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E57.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E58
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E58.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E59
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E59.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E60
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E60.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E61
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E61.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E62
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E62.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E63
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E63.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E64
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E64.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E65
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E65.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E66
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E66.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E67
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E67.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E68
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E68.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E69
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E69.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E70
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E70.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E71
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E71.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E72
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E72.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E73
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E73.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E74
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E74.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E75
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E75.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E76
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E76.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E77
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E77.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E78
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E78.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E79
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E79.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E80
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E80.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E81
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E81.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E82
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E82.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E83
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E83.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E84
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E84.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E85
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E85.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E86
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E86.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E87
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E87.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E88
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E88.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E89
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E89.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E90
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E90.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E91
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E91.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E92
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E92.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E93
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E93.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E94
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E94.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E95
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E95.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E96
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E96.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E97
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E97.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E98
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E98.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E99
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E99.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E100
+https://ia801508.us.archive.org/12/items/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E100.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E101
+https://ia801508.us.archive.org/12/items/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E101.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E102
+https://ia801508.us.archive.org/12/items/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E102.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E103
+https://ia601508.us.archive.org/12/items/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E103.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E104
+https://ia601508.us.archive.org/12/items/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E104.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E105
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E105.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E106
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E106.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E107
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E107.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E108
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E108.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E109
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E109.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E110
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E110.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E111
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E111.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E112
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E112.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E113
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E113.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E114
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E114.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E115
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E115.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E116
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E116.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E117
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E117.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E118
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E118.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E119
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E119.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E120
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E120.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E121
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E121.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E122
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E122.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E123
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E123.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E124
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E124.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E125
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E125.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E126
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E126.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E127
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E127.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E128
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E128.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E129
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E129.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E130
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E130.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E131
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E131.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E132
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E132.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E133
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E133.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E134
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E134.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E135
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E135.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E136
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E136.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E137
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E137.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E138
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E138.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E139
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E139.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E140
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E140.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E141
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E141.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E142
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E142.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E143
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E143.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E144
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E144.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E145
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E145.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E146
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E146.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E147
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E147.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E148
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E148.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E149
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E149.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E150
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E150.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E151
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E151.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E152
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E152.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E153
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E153.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E154
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E154.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E155
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E155.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E156
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E156.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E157
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E157.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E158
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E158.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E159
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E159.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E160
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E160.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E161
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E161.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E162
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E162.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E163
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E163.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E164
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E164.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E165
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E165.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E166
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E166.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E167
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E167.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E168
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E168.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E169
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E169.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E170
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E170.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E171
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E171.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E172
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E172.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E173
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E173.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E174
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E174.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E175
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E175.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E176
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E176.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E177
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E177.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E178
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E178.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E179
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E179.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E180
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E180.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E181
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E181.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E182
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E182.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E183
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E183.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E184
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E184.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E185
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E185.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E186
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E186.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E187
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E187.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E188
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E188.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E189
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E189.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E190
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E190.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E191
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E191.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E192
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E192.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E193
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E193.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E194
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E194.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E195
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E195.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E196
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E196.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E197
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E197.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E198
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E198.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E199
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E199.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E200
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E200.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E201
+https://ia801508.us.archive.org/12/items/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E201.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E202
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E202.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E203
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E203.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E204
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E204.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E205
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E205.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E206
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E206.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E207
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E207.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E208
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E208.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E209
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E209.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E210
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E210.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E211
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E211.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E212
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E212.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E213
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E213.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E214
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E214.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E215
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E215.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E216
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E216.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E217
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E217.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E218
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E218.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E219
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E219.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E220
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E220.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E221
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E221.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E222
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E222.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E223
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E223.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E224
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E224.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E225
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E225.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E226
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E226.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E227
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E227.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E228
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E228.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E229
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E229.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E230
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E230.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E231
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E231.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E232
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E232.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E233
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E233.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E234
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E234.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E235
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E235.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E236
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E236.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E237
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E237.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E238
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E238.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E239
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E239.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E240
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E240.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E241
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E241.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E242
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E242.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E243
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E243.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E244
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E244.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E245
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E245.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E246
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E246.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E247
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E247.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E248
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E248.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E249
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E249.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E250
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E250.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E251
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E251.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E252
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E252.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E253
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E253.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E254
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E254.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E255
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E255.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E256
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E256.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E257
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E257.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E258
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E258.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E259
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E259.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E260
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E260.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E261
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E261.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E262
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E262.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E263
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E263.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E264
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E264.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E265
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E265.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E266
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E266.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E267
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E267.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E268
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E268.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E269
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E269.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E270
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E270.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E271
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E271.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E272
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E272.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E273
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E273.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E274
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E274.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E275
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E275.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E276
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E276.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E277
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E277.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E278
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E278.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E279
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E279.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E280
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E280.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E281
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E281.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E282
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E282.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E283
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E283.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E284
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E284.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E285
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E285.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E286
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E286.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E287
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E287.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E288
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E288.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E289
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E289.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E290
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E290.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E291
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E291.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E292
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E292.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E293
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E293.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E294
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E294.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E295
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E295.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E296
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E296.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E297
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E297.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E298
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E298.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E299
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E299.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E300
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E300.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E301
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E301.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E302
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E302.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E303
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E303.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E304
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E304.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E305
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E305.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E306
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E306.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E307
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E307.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E308
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E308.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E309
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E309.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E310
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E310.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E311
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E311.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E312
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E312.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E313
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E313.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E314
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E314.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E315
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E315.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E316
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E316.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E317
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E317.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E318
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E318.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E319
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E319.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E320
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E320.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E321
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E321.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E322
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E322.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E323
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E323.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E324
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E324.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E325
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E325.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E326
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E326.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E327
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E327.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E328
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E328.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E329
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E329.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E330
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E330.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E331
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E331.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E332
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E332.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E333
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E333.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E334
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E334.mp4
+
+#EXTINF:-1 tvg-logo="https://m.media-amazon.com/images/S/pv-target-images/b55b8807ca03e0c2e01aac6710aa1ecf0c2039d973a61835907b7382301eb323.jpg",Yo soy Betty, la fea - Episodio S01E335
+https://archive.org/download/yo-soy-betty-la-fea_202502/Yo%20soy%20Betty%2C%20la%20fea%20-%20Episodio%20S01E335.mp4
