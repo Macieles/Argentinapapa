@@ -1,155 +1,117 @@
-var BASE_URL = 'https://cuevana3k.pro';
-var TMDB_API = 'https://api.themoviedb.org/3';
-var TMDB_KEY = '1865f43a0549ca50d341dd9ab8b29f49'; // Obtener en https://www.themoviedb.org/settings/api
+/**
+ * Fuente Pelispanda — Extracción de enlaces Torrent / Magnet
+ */
+var TMDB_KEY = 'a2d9bbed370d9f678e34006f8750a5a5';
+var TMDB = 'https://api.themoviedb.org/3';
+var BASE = 'https://pelispanda.org';
+var UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-var HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Referer': BASE_URL + '/'
-};
-
-function fetchJson(url) {
-  return fetch(url, { headers: HEADERS })
-    .then(function(res) { return res.json(); })
-    .catch(function(err) {
-      console.error('[Cuevana3K] fetchJson error:', err.message);
-      return null;
+async function httpGet(url) {
+  try {
+    var res = await fetch(url, {
+      headers: { 'User-Agent': UA, 'Accept-Language': 'es-MX,es;q=0.9' },
+      redirect: 'follow'
     });
+    if (!res.ok) return null;
+    return await res.text();
+  } catch (e) {
+    return null;
+  }
 }
 
-function fetchText(url) {
-  return fetch(url, { headers: HEADERS })
-    .then(function(res) { return res.text(); })
-    .catch(function(err) {
-      console.error('[Cuevana3K] fetchText error:', err.message);
-      return null;
-    });
+async function httpGetJson(url) {
+  try {
+    var res = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': UA } });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (e) {
+    return null;
+  }
 }
 
-// Extraer m3u8 o URL de video del HTML
-function extractStreamUrl(html) {
-  // Patrón 1: m3u8 directo
-  var m3u8Match = html.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/);
-  if (m3u8Match) return { url: m3u8Match[0], quality: '1080p' };
-
-  // Patrón 2: video src en data-src o src
-  var videoMatch = html.match(/(?:data-src|src|file)\s*[:=]\s*["'](https?:\/\/[^"']+)\.mp4[^"']*/);
-  if (videoMatch) return { url: videoMatch[1], quality: '1080p' };
-
-  // Patrón 3: JSON con "source" o "file"
-  var jsonMatch = html.match(/["'](?:source|file|src)["']\s*:\s*["'](https?:\/\/[^"']+)["']/);
-  if (jsonMatch) return { url: jsonMatch[1], quality: '1080p' };
-
-  // Patrón 4: dplayer / jwplayer config
-  var playerMatch = html.match(/(?:file|source)\s*:\s*["'](https?:\/\/[^"']+)["']/);
-  if (playerMatch) return { url: playerMatch[1], quality: '1080p' };
-
-  return null;
+function slugify(title) {
+  var s = String(title || '').trim().toLowerCase();
+  var map = { á: 'a', é: 'e', í: 'i', ó: 'o', ú: 'u', ñ: 'n' };
+  Object.keys(map).forEach(function (k) { s = s.split(k).join(map[k]); });
+  return s.replace(/[^a-z0-9\s-]/g, '').replace(/[\s-]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
-function searchOnCuevana(title, mediaType) {
-  var searchUrl;
-  if (mediaType === 'tv') {
-    searchUrl = BASE_URL + '/?s=' + encodeURIComponent(title);
-  } else {
-    searchUrl = BASE_URL + '/?s=' + encodeURIComponent(title);
+async function getTmdbInfo(tmdbId, isMovie) {
+  var endpoint = isMovie ? 'movie' : 'tv';
+  try {
+    var res = await httpGetJson(TMDB + '/' + endpoint + '/' + tmdbId + '?api_key=' + TMDB_KEY + '&language=es-MX');
+    return {
+      title: res.title || res.name || '',
+      year: (res.release_date || res.first_air_date || '').slice(0, 4)
+    };
+  } catch (e) {
+    return { title: '', year: '' };
+  }
+}
+
+/**
+ * Scraping de Pelispanda para extraer los enlaces Magnet o archivos .torrent
+ */
+async function scrapePelispanda(tmdbInfo) {
+  var slug = slugify(tmdbInfo.title);
+  if (!slug) return [];
+
+  // Posibles estructuras de URL amigables que utiliza el sitio
+  var candidates = [
+    BASE + '/pelicula/' + slug + '/',
+    BASE + '/' + slug + '/',
+  ];
+
+  var html = null;
+  for (var i = 0; i < candidates.length; i++) {
+    html = await httpGet(candidates[i]);
+    if (html) break;
   }
 
-  return fetchText(searchUrl).then(function(html) {
-    if (!html) return null;
+  if (!html) return [];
 
-    var results = [];
-    var linkRegex;
+  var torrents = [];
+  
+  // Expresión regular para buscar enlaces magnet o archivos torrent dentro del HTML
+  var linkRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  var match;
 
-    if (mediaType === 'tv') {
-      linkRegex = /href="([^"]*\/series\/[^"]+)"/g;
-    } else {
-      linkRegex = /href="([^"]*\/peliculas?\/[^"]+)"/g;
+  while ((match = linkRegex.exec(html)) !== null) {
+    var href = match[1];
+    var anchorText = match[2].replace(/<[^>]*>?/g, '').trim();
+
+    // Filtramos para capturar exclusivamente enlaces magnet o archivos .torrent
+    if (href.indexOf('magnet:?') === 0 || href.indexOf('.torrent') >= 0) {
+      torrents.push({
+        name: 'Torrent - ' + anchorText,
+        title: tmdbInfo.title,
+        url: href,
+        quality: html.indexOf('1080p') >= 0 ? '1080p' : 'HD',
+        provider: 'Pelispanda',
+        headers: { 'User-Agent': UA }
+      });
     }
+  }
 
-    var match;
-    var seen = {};
-    while ((match = linkRegex.exec(html)) !== null) {
-      var url = match[1];
-      if (!seen[url]) {
-        seen[url] = true;
-        results.push(url);
-      }
-    }
-
-    // Devolver la primera URL relevante (la más probable)
-    return results.length > 0 ? results[0] : null;
-  });
+  return torrents;
 }
 
-// Obtener título desde TMDB
-function getTmdbTitle(tmdbId, mediaType) {
-  var endpoint = mediaType === 'tv'
-    ? TMDB_API + '/tv/' + tmdbId + '?api_key=' + TMDB_KEY
-    : TMDB_API + '/movie/' + tmdbId + '?api_key=' + TMDB_KEY;
+async function getStreams(tmdbId, type, season, episode) {
+  var id = parseInt(tmdbId, 10);
+  if (!id) return [];
+  var isMovie = String(type).toLowerCase().indexOf('tv') < 0;
+  
+  var tmdbInfo = await getTmdbInfo(id, isMovie);
+  if (!tmdbInfo.title) return [];
 
-  return fetchJson(endpoint).then(function(data) {
-    if (!data) return null;
-    return mediaType === 'tv' ? data.name : data.title;
-  });
+  if (isMovie) {
+    return await scrapePelispanda(tmdbInfo);
+  } else {
+    // Lógica para series y temporadas en Pelispanda
+    return [];
+  }
 }
 
-
-function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
-  console.log('[Cuevana3K] Buscando ' + mediaType + ' ID: ' + tmdbId);
-
-  return getTmdbTitle(tmdbId, mediaType)
-    .then(function(title) {
-      if (!title) {
-        console.error('[Cuevana3K] No se pudo obtener título');
-        return [];
-      }
-      console.log('[Cuevana3K] Título: ' + title);
-
-      return searchOnCuevana(title, mediaType);
-    })
-    .then(function(pageUrl) {
-      if (!pageUrl) {
-        console.log('[Cuevana3K] No se encontró en el sitio');
-        return [];
-      }
-
-      // Si es URL relativa, hacerla absoluta
-      if (pageUrl.startsWith('/')) {
-        pageUrl = BASE_URL + pageUrl;
-      }
-
-      console.log('[Cuevana3K] Página: ' + pageUrl);
-
-      return fetchText(pageUrl);
-    })
-    .then(function(html) {
-      if (!html) return [];
-
-      var stream = extractStreamUrl(html);
-      if (!stream) {
-        console.log('[Cuevana3K] No se encontró stream');
-        return [];
-      }
-
-      console.log('[Cuevana3K] Stream: ' + stream.url);
-
-      return [{
-        name: 'CVN-Cuevana3K',
-        title: 'Cuevana3K ' + stream.quality,
-        url: stream.url,
-        quality: stream.quality,
-        headers: HEADERS
-      }];
-    })
-    .catch(function(err) {
-      console.error('[Cuevana3K] Error:', err.message);
-      return [];
-    });
-}
-
-// Export para React Native / Hermes
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { getStreams };
-} else {
-  global.getStreams = getStreams;
-}   
+module.exports = {
+  getStreams: getStreams,
+};
