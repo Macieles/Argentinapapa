@@ -1,7 +1,3 @@
-// Nuvio plugin - PelisPanda (torrents/magnets)
-// Usa la API REST del sitio: /wp-json/wpreact/v1/...
-// Busca el título por tmdb_id y extrae los magnets del detalle.
-
 var TMDB_KEY = 'a2d9bbed370d9f678e34006f8750a5a5'; // recomendado: regenerarla en TMDB
 var TMDB = 'https://api.themoviedb.org/3';
 var BASE = 'https://pelispanda.org';
@@ -10,8 +6,6 @@ var UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, l
 var TIMEOUT = 10000;
 var DEBUG = true;
 
-// Nombres de endpoint a probar (el listado de películas está confirmado: "movies").
-// Series y detalle son SUPUESTOS: se prueban en orden y se recuerda el que funcione.
 var KINDS = { movie: ['movies'], tv: ['series', 'tvshows', 'shows', 'serie'] };
 var SEARCH_PARAMS = ['search', 's', 'q'];
 var DETAIL_BUILDERS = [
@@ -24,7 +18,7 @@ var DETAIL_BUILDERS = [
   function (k, it) { return API + '/' + k + '?tmdb_id=' + it.tmdb_id; }
 ];
 
-// Lo que ya se descubrió que funciona (evita repetir pruebas entre llamadas)
+
 var learned = { kind: {}, search: {}, detail: {} };
 
 function log() {
@@ -93,14 +87,13 @@ async function getTmdbInfo(tmdbId, isMovie) {
   };
 }
 
-// ---------- Utilidades de JSON ----------
+
 function looksLikeItems(arr) {
   return Array.isArray(arr) && arr.length && arr[0] && typeof arr[0] === 'object' &&
     (arr[0].tmdb_id !== undefined || arr[0].slug !== undefined);
 }
 
-// Devuelve el listado de ítems del catálogo (con tmdb_id/slug) si la respuesta es un listado;
-// si es un detalle (con arrays de descargas, episodios, etc.) devuelve [].
+
 function extractList(json) {
   if (looksLikeItems(json)) return json;
   if (json && typeof json === 'object' && !Array.isArray(json)) {
@@ -120,7 +113,7 @@ function sameItem(a, b) {
 
 var CTX_KEYS = ['quality', 'calidad', 'resolution', 'resolucion', 'label', 'name', 'title', 'size', 'tamano', 'peso'];
 
-// Recorre cualquier JSON y junta magnets / .torrent con un poco de contexto (calidad, etiqueta)
+
 function collectLinks(node, ctx, out) {
   if (typeof node === 'string') {
     var mags = node.match(/magnet:\?[^"'\s<>]+/gi) || [];
@@ -140,7 +133,7 @@ function collectLinks(node, ctx, out) {
   return out;
 }
 
-// ---------- Búsqueda del ítem en el sitio ----------
+
 async function findItem(tmdbId, info, isMovie) {
   var type = isMovie ? 'movie' : 'tv';
   var titles = [info.title, info.originalTitle].filter(function (t, i, a) { return t && a.indexOf(t) === i; });
@@ -173,7 +166,7 @@ async function findItem(tmdbId, info, isMovie) {
   return null;
 }
 
-// ---------- Detalle ----------
+
 async function getDetail(kind, item) {
   var type = kind === 'movies' ? 'movie' : 'tv';
   var builders = learned.detail[type] != null ? [DETAIL_BUILDERS[learned.detail[type]]] : DETAIL_BUILDERS;
@@ -186,7 +179,6 @@ async function getDetail(kind, item) {
   for (var i = 0; i < builders.length; i++) {
     var json = await httpGetJson(builders[i](kind, item));
     if (!json) continue;
-    // Si devolvió un listado en vez de un detalle, quedarse con el ítem correcto
     var list = extractList(json);
     var node = json;
     if (list.length) {
@@ -203,7 +195,6 @@ async function getDetail(kind, item) {
   return null;
 }
 
-// ---------- Armado de streams ----------
 async function scrapeTorrents(tmdbId, info, season, episode, isMovie) {
   var found = await findItem(tmdbId, info, isMovie);
   if (!found) return [];
