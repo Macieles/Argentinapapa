@@ -1,9 +1,6 @@
-/**
- * Fuente Pelispanda — Extracción de enlaces Torrent / Magnet
- */
 var TMDB_KEY = 'a2d9bbed370d9f678e34006f8750a5a5';
 var TMDB = 'https://api.themoviedb.org/3';
-var BASE = 'https://pelispanda.org';
+var BASE = 'https://pelispanda.org'; //
 var UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 async function httpGet(url) {
@@ -40,27 +37,28 @@ async function getTmdbInfo(tmdbId, isMovie) {
   var endpoint = isMovie ? 'movie' : 'tv';
   try {
     var res = await httpGetJson(TMDB + '/' + endpoint + '/' + tmdbId + '?api_key=' + TMDB_KEY + '&language=es-MX');
+    if (!res) return null;
     return {
       title: res.title || res.name || '',
       year: (res.release_date || res.first_air_date || '').slice(0, 4)
     };
   } catch (e) {
-    return { title: '', year: '' };
+    return null;
   }
 }
 
-/**
- * Scraping de Pelispanda para extraer los enlaces Magnet o archivos .torrent
- */
-async function scrapePelispanda(tmdbInfo) {
+async function scrapeTorrents(tmdbInfo, season, episode, isMovie) {
   var slug = slugify(tmdbInfo.title);
   if (!slug) return [];
 
-  // Posibles estructuras de URL amigables que utiliza el sitio
-  var candidates = [
-    BASE + '/pelicula/' + slug + '/',
-    BASE + '/' + slug + '/',
-  ];
+  var candidates = [];
+  if (isMovie) {
+    candidates.push(BASE + '/pelicula/' + slug + '/');
+    candidates.push(BASE + '/' + slug + '/');
+  } else {
+    candidates.push(BASE + '/serie/' + slug + '-temporada-' + season + '-episodio-' + episode + '/');
+    candidates.push(BASE + '/' + slug + '-t' + season + 'e' + episode + '/');
+  }
 
   var html = null;
   for (var i = 0; i < candidates.length; i++) {
@@ -71,23 +69,26 @@ async function scrapePelispanda(tmdbInfo) {
   if (!html) return [];
 
   var torrents = [];
-  
-  // Expresión regular para buscar enlaces magnet o archivos torrent dentro del HTML
-  var linkRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  var linkRegex = /<a[^>]+href=["'](magnet:\?[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   var match;
 
   while ((match = linkRegex.exec(html)) !== null) {
-    var href = match[1];
+    var magnetUrl = match[1];
     var anchorText = match[2].replace(/<[^>]*>?/g, '').trim();
 
-    // Filtramos para capturar exclusivamente enlaces magnet o archivos .torrent
-    if (href.indexOf('magnet:?') === 0 || href.indexOf('.torrent') >= 0) {
+
+    if (magnetUrl && magnetUrl.indexOf('magnet:?') === 0) {
+      var quality = '1080p';
+      var textLower = (anchorText + ' ' + html).toLowerCase();
+      if (textLower.indexOf('2160p') >= 0 || textLower.indexOf('4k') >= 0) quality = '4K';
+      else if (textLower.indexOf('720p') >= 0) quality = '720p';
+
       torrents.push({
-        name: 'Torrent - ' + anchorText,
+        name: 'Torrent - ' + quality,
         title: tmdbInfo.title,
-        url: href,
-        quality: html.indexOf('1080p') >= 0 ? '1080p' : 'HD',
-        provider: 'Pelispanda',
+        url: magnetUrl,
+        quality: quality,
+        provider: 'TorrentProvider',
         headers: { 'User-Agent': UA }
       });
     }
@@ -99,17 +100,34 @@ async function scrapePelispanda(tmdbInfo) {
 async function getStreams(tmdbId, type, season, episode) {
   var id = parseInt(tmdbId, 10);
   if (!id) return [];
-  var isMovie = String(type).toLowerCase().indexOf('tv') < 0;
-  
-  var tmdbInfo = await getTmdbInfo(id, isMovie);
-  if (!tmdbInfo.title) return [];
 
-  if (isMovie) {
-    return await scrapePelispanda(tmdbInfo);
-  } else {
-    // Lógica para series y temporadas en Pelispanda
+  var isMovie = String(type).toLowerCase().indexOf('tv') < 0 && String(type).toLowerCase().indexOf('series') < 0;
+  
+  // 1. Comprobar datos de TMDB
+  var tmdbInfo = await getTmdbInfo(id, isMovie);
+  if (!tmdbInfo || !tmdbInfo.title) {
+    console.log('[Validator] Error: No se pudo obtener información de TMDB para el ID:', id);
     return [];
   }
+
+  var rawStreams = await scrapeTorrents(tmdbInfo, season || 1, episode || 1, isMovie);
+
+  var validStreams = [];
+  var seenMagnets = {};
+
+  if (Array.isArray(rawStreams)) {
+    rawStreams.forEach(function (stream) {
+      if (stream && stream.url && stream.url.indexOf('magnet:?') === 0 && !seenMagnets[stream.url]) {
+        seenMagnets[stream.url] = true;
+        validStreams.push(stream);
+      }
+    });
+  }
+
+  console.log('[Validator] Retorno verificado. Total de torrents válidos:', validStreams.length);
+  
+  // Retorno final garantizado (siempre un array, vacío o con elementos limpios)
+  return validStreams;
 }
 
 module.exports = {
