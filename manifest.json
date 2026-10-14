@@ -9,7 +9,7 @@
       "version": "1.0.0",
       "author": "macieles",
       "supportedTypes": ["movie", "tv"],
-      "filename": "providers/cinecalidad.js",
+      "filename": "providers/Pelispanda.js",
       "enabled": true,
       "hasSettings": false,
       "formats": ["m3u8"],
