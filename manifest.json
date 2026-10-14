@@ -1,0 +1,22 @@
+{
+  "name": "PelisPanda Nuvio",
+  "version": "1.0.0",
+  "scrapers": [
+    {
+      "id": "pelispanda",
+      "name": "PelisPanda",
+      "description": "Torrents en español latino: películas y series de PelisPanda",
+      "version": "1.0.0",
+      "author": "Community",
+      "supportedTypes": ["movie", "tv"],
+      "filename": "providers/pelispanda.js",
+      "enabled": true,
+      "hasSettings": false,
+      "formats": ["torrent"],
+      "logo": "https://pelispanda.org/wp-content/uploads/2025/03/cropped-3123131432-192x192.png",
+      "contentLanguage": ["es"],
+      "disabledPlatforms": [],
+      "supportsExternalPlayer": true
+    }
+  ]
+}
